@@ -1,5 +1,6 @@
 #include "hoyukey_engine.h"
 #include <fcitx/instance.h>
+#include <fcitx/capabilityflags.h>
 #include <fcitx-utils/key.h>
 
 HoyuKeyAddonEngine::HoyuKeyAddonEngine(fcitx::Instance* instance)
@@ -113,7 +114,13 @@ void HoyuKeyAddonEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEven
         case HOYUKEY_ACTION_TRANSFORM:
         case HOYUKEY_ACTION_TRANSFORM_CARET: {
             if (action.backspaces > 0) {
-                ic->deleteSurroundingText(-static_cast<int>(action.backspaces), action.backspaces);
+                if (ic->capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText)) {
+                    ic->deleteSurroundingText(-static_cast<int>(action.backspaces), action.backspaces);
+                } else {
+                    for (uint32_t i = 0; i < action.backspaces; i++) {
+                        ic->forwardKey(fcitx::Key(FcitxKey_BackSpace));
+                    }
+                }
             }
             if (action.text) {
                 ic->commitString(action.text);

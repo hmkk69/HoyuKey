@@ -115,6 +115,7 @@ jobs:
           cp crates/fcitx5-hoyukey/hoyukey.conf dist-linux/HoyuKey-archive/
           cp crates/fcitx5-hoyukey/hoyukey-addon.conf dist-linux/HoyuKey-archive/
           cp crates/fcitx5-hoyukey/scripts/install.sh dist-linux/HoyuKey-archive/
+          cp icon/logo.png dist-linux/HoyuKey-archive/hoyukey.png
           chmod +x dist-linux/HoyuKey-archive/install.sh
           tar -czf dist-linux/HoyuKey.tar.gz -C dist-linux HoyuKey-archive
 
@@ -123,10 +124,14 @@ jobs:
           mkdir -p deb-pkg/usr/lib/fcitx5
           mkdir -p deb-pkg/usr/share/fcitx5/addon
           mkdir -p deb-pkg/usr/share/fcitx5/inputmethod
+          mkdir -p deb-pkg/usr/share/icons/hicolor/128x128/apps
+          mkdir -p deb-pkg/usr/share/pixmaps
 
           cp crates/fcitx5-hoyukey/build/hoyukey.so deb-pkg/usr/lib/fcitx5/
           cp crates/fcitx5-hoyukey/hoyukey-addon.conf deb-pkg/usr/share/fcitx5/addon/
           cp crates/fcitx5-hoyukey/hoyukey.conf deb-pkg/usr/share/fcitx5/inputmethod/
+          cp icon/logo.png deb-pkg/usr/share/icons/hicolor/128x128/apps/hoyukey.png
+          cp icon/logo.png deb-pkg/usr/share/pixmaps/hoyukey.png
 
           cat << EOF > deb-pkg/DEBIAN/control
           Package: hoyukey

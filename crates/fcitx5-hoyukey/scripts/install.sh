@@ -20,6 +20,13 @@ sudo mkdir -p /usr/share/fcitx5/addon /usr/share/fcitx5/inputmethod
 sudo cp hoyukey-addon.conf /usr/share/fcitx5/addon/
 sudo cp hoyukey.conf /usr/share/fcitx5/inputmethod/
 
+if [ -f "hoyukey.png" ]; then
+    echo "-> Cài đặt biểu tượng HoyuKey..."
+    sudo mkdir -p /usr/share/icons/hicolor/128x128/apps /usr/share/pixmaps
+    sudo cp hoyukey.png /usr/share/icons/hicolor/128x128/apps/hoyukey.png || true
+    sudo cp hoyukey.png /usr/share/pixmaps/hoyukey.png || true
+fi
+
 echo "-> Khởi động lại Fcitx5..."
 if command -v fcitx5-remote >/dev/null 2>&1; then
     fcitx5-remote -r || true
