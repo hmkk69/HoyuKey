@@ -1,6 +1,6 @@
 #include "hoyukey_engine.h"
 #include <fcitx/instance.h>
-#include <fcitx/capabilityflags.h>
+#include <fcitx-utils/capabilityflags.h>
 #include <fcitx-utils/key.h>
 
 HoyuKeyAddonEngine::HoyuKeyAddonEngine(fcitx::Instance* instance)
