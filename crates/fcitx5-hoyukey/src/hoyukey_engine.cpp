@@ -2,61 +2,57 @@
 #include <fcitx/instance.h>
 #include <fcitx-utils/key.h>
 
-class HoyuKeyContextData : public fcitx::InputContextData {
-public:
-    HoyuKeyContextData() {
-        engine_ = hoyukey_engine_new();
-    }
-    ~HoyuKeyContextData() override {
-        if (engine_) {
-            hoyukey_engine_free(engine_);
-            engine_ = nullptr;
+HoyuKeyAddonEngine::HoyuKeyAddonEngine(fcitx::Instance* instance)
+    : instance_(instance) {}
+
+HoyuKeyAddonEngine::~HoyuKeyAddonEngine() {
+    for (auto& pair : contexts_) {
+        if (pair.second) {
+            hoyukey_engine_free(pair.second);
         }
     }
-    HoyuKeyEngine* engine() { return engine_; }
-    void reset() {
-        if (engine_) {
-            hoyukey_engine_reset(engine_);
-        }
-    }
-
-private:
-    HoyuKeyEngine* engine_;
-};
-
-HoyuKeyEngine::HoyuKeyEngine(fcitx::Instance* instance)
-    : instance_(instance), hoyu_engine_(nullptr) {}
-
-HoyuKeyEngine::~HoyuKeyEngine() = default;
-
-void HoyuKeyEngine::activate(const fcitx::InputMethodEntry&, fcitx::InputContextEvent& event) {
-    auto* ic = event.inputContext();
-    if (!ic) return;
-    auto* data = ic->propertyFor(&HoyuKeyEngineFactory::create);
-    if (!data) {
-        ic->setPropertyFor(&HoyuKeyEngineFactory::create, std::make_unique<HoyuKeyContextData>());
-    }
+    contexts_.clear();
 }
 
-void HoyuKeyEngine::deactivate(const fcitx::InputMethodEntry&, fcitx::InputContextEvent& event) {
+HoyuKeyEngine* HoyuKeyAddonEngine::getOrCreateEngine(fcitx::InputContext* ic) {
+    auto it = contexts_.find(ic);
+    if (it != contexts_.end()) {
+        return it->second;
+    }
+    HoyuKeyEngine* engine = hoyukey_engine_new();
+    contexts_[ic] = engine;
+    return engine;
+}
+
+void HoyuKeyAddonEngine::activate(const fcitx::InputMethodEntry&, fcitx::InputContextEvent& event) {
     auto* ic = event.inputContext();
     if (ic) {
-        if (auto* data = dynamic_cast<HoyuKeyContextData*>(ic->propertyFor(&HoyuKeyEngineFactory::create))) {
-            data->reset();
-        }
+        getOrCreateEngine(ic);
     }
 }
 
-void HoyuKeyEngine::reset(const fcitx::InputMethodEntry&, fcitx::InputContextEvent& event) {
+void HoyuKeyAddonEngine::deactivate(const fcitx::InputMethodEntry&, fcitx::InputContextEvent& event) {
     auto* ic = event.inputContext();
     if (ic) {
-        if (auto* data = dynamic_cast<HoyuKeyContextData*>(ic->propertyFor(&HoyuKeyEngineFactory::create))) {
-            data->reset();
+        auto it = contexts_.find(ic);
+        if (it != contexts_.end()) {
+            hoyukey_engine_free(it->second);
+            contexts_.erase(it);
         }
     }
 }
 
-void HoyuKeyEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEvent& keyEvent) {
+void HoyuKeyAddonEngine::reset(const fcitx::InputMethodEntry&, fcitx::InputContextEvent& event) {
+    auto* ic = event.inputContext();
+    if (ic) {
+        auto it = contexts_.find(ic);
+        if (it != contexts_.end()) {
+            hoyukey_engine_reset(it->second);
+        }
+    }
+}
+
+void HoyuKeyAddonEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEvent& keyEvent) {
     if (keyEvent.isRelease()) {
         return;
     }
@@ -64,39 +60,35 @@ void HoyuKeyEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEvent& ke
     auto* ic = keyEvent.inputContext();
     if (!ic) return;
 
-    auto* data = dynamic_cast<HoyuKeyContextData*>(ic->propertyFor(&HoyuKeyEngineFactory::create));
-    if (!data) {
-        auto newData = std::make_unique<HoyuKeyContextData>();
-        data = newData.get();
-        ic->setPropertyFor(&HoyuKeyEngineFactory::create, std::move(newData));
-    }
-
+    HoyuKeyEngine* engine = getOrCreateEngine(ic);
     auto key = keyEvent.rawKey();
-    if (key.hasModifier() && !key.isShift()) {
-        data->reset();
+
+    // Reset buffer nếu ấn các phím điều khiển (Ctrl, Alt, Super)
+    auto states = key.states();
+    if (states.test(fcitx::KeyState::Ctrl) || states.test(fcitx::KeyState::Alt) || states.test(fcitx::KeyState::Super)) {
+        hoyukey_engine_reset(engine);
         return;
     }
 
     // Xử lý Backspace
     if (key.check(FcitxKey_BackSpace)) {
-        HoyuKeyAction action = hoyukey_engine_on_backspace(data->engine());
+        HoyuKeyAction action = hoyukey_engine_on_backspace(engine);
         hoyukey_action_free(&action);
         return;
     }
 
-    // Lấy ký tự nhập vào
+    // Lấy ký tự Unicode
     uint32_t unicode = fcitx::Key::keySymToUnicode(key.sym());
     if (unicode == 0) {
         return;
     }
 
-    HoyuKeyAction action = hoyukey_engine_process_key(data->engine(), unicode, false);
+    HoyuKeyAction action = hoyukey_engine_process_key(engine, unicode, false);
 
     switch (action.action_type) {
         case HOYUKEY_ACTION_TRANSFORM:
         case HOYUKEY_ACTION_TRANSFORM_CARET: {
             if (action.backspaces > 0) {
-                // Xoá ký tự trước con trỏ
                 ic->deleteSurroundingText(-static_cast<int>(action.backspaces), action.backspaces);
             }
             if (action.text) {
@@ -107,7 +99,7 @@ void HoyuKeyEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEvent& ke
             return;
         }
         case HOYUKEY_ACTION_RESET: {
-            data->reset();
+            hoyukey_engine_reset(engine);
             hoyukey_action_free(&action);
             return;
         }
@@ -121,7 +113,7 @@ void HoyuKeyEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEvent& ke
 }
 
 fcitx::AddonInstance* HoyuKeyEngineFactory::create(fcitx::AddonManager* manager) {
-    return new HoyuKeyEngine(manager->instance());
+    return new HoyuKeyAddonEngine(manager->instance());
 }
 
 FCITX_ADDON_FACTORY(HoyuKeyEngineFactory)

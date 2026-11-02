@@ -5,12 +5,13 @@
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
 #include <fcitx/inputcontext.h>
+#include <unordered_map>
 #include "hoyukey.h"
 
-class HoyuKeyEngine : public fcitx::InputMethodEngineV2 {
+class HoyuKeyAddonEngine : public fcitx::InputMethodEngineV2 {
 public:
-    HoyuKeyEngine(fcitx::Instance* instance);
-    ~HoyuKeyEngine() override;
+    HoyuKeyAddonEngine(fcitx::Instance* instance);
+    ~HoyuKeyAddonEngine() override;
 
     void keyEvent(const fcitx::InputMethodEntry& entry, fcitx::KeyEvent& keyEvent) override;
     void reset(const fcitx::InputMethodEntry& entry, fcitx::InputContextEvent& event) override;
@@ -19,7 +20,8 @@ public:
 
 private:
     fcitx::Instance* instance_;
-    HoyuKeyEngine* hoyu_engine_;
+    std::unordered_map<fcitx::InputContext*, HoyuKeyEngine*> contexts_;
+    HoyuKeyEngine* getOrCreateEngine(fcitx::InputContext* ic);
 };
 
 class HoyuKeyEngineFactory : public fcitx::AddonFactory {
