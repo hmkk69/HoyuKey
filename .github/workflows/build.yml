@@ -77,101 +77,9 @@ jobs:
           path: dist/HoyuKey.exe
           retention-days: 5
 
-  build-linux:
-    name: Build Linux
-    needs: version
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake extra-cmake-modules libfcitx5core-dev libfcitx5utils-dev
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run Linux Tests
-        run: cargo test -p hoyukey-core -p hoyukey-c -p hoyukey-cli --verbose
-
-      - name: Build Rust Libraries & CLI
-        run: cargo build --release -p hoyukey-c -p hoyukey-cli
-
-      - name: Build Fcitx5 HoyuKey Addon
-        run: |
-          cd crates/fcitx5-hoyukey
-          cmake -B build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
-
-      - name: Package Linux Distribution (.deb & .tar.gz)
-        run: |
-          mkdir -p dist-linux/HoyuKey-archive
-          cp crates/fcitx5-hoyukey/build/hoyukey.so dist-linux/HoyuKey-archive/
-          cp crates/fcitx5-hoyukey/hoyukey.conf dist-linux/HoyuKey-archive/
-          cp crates/fcitx5-hoyukey/hoyukey-addon.conf dist-linux/HoyuKey-archive/
-          cp crates/fcitx5-hoyukey/scripts/install.sh dist-linux/HoyuKey-archive/
-          cp icon/logo.png dist-linux/HoyuKey-archive/hoyukey.png
-          chmod +x dist-linux/HoyuKey-archive/install.sh
-          tar -czf dist-linux/HoyuKey.tar.gz -C dist-linux HoyuKey-archive
-
-          # Tao goi cai dat 1-cham .deb cho Ubuntu, Debian, Linux Mint
-          mkdir -p deb-pkg/DEBIAN
-          mkdir -p deb-pkg/usr/lib/fcitx5
-          mkdir -p deb-pkg/usr/share/fcitx5/addon
-          mkdir -p deb-pkg/usr/share/fcitx5/inputmethod
-          mkdir -p deb-pkg/usr/share/icons/hicolor/128x128/apps
-          mkdir -p deb-pkg/usr/share/pixmaps
-
-          cp crates/fcitx5-hoyukey/build/hoyukey.so deb-pkg/usr/lib/fcitx5/
-          cp crates/fcitx5-hoyukey/hoyukey-addon.conf deb-pkg/usr/share/fcitx5/addon/
-          cp crates/fcitx5-hoyukey/hoyukey.conf deb-pkg/usr/share/fcitx5/inputmethod/
-          cp icon/logo.png deb-pkg/usr/share/icons/hicolor/128x128/apps/hoyukey.png
-          cp icon/logo.png deb-pkg/usr/share/pixmaps/hoyukey.png
-
-          cat << EOF > deb-pkg/DEBIAN/control
-          Package: hoyukey
-          Version: ${{ needs.version.outputs.version }}
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Depends: fcitx5
-          Maintainer: Hoyuuna
-          Description: Bo go Tieng Viet HoyuKey cho Linux (Fcitx5)
-           HoyuKey la bo go Tieng Viet sieu nhe, hien dai va on dinh viet bang Rust.
-          EOF
-
-          cat << 'EOF' > deb-pkg/DEBIAN/postinst
-          #!/bin/sh
-          set -e
-          if [ -d "/usr/lib/x86_64-linux-gnu/fcitx5" ]; then
-              ln -sf /usr/lib/fcitx5/hoyukey.so /usr/lib/x86_64-linux-gnu/fcitx5/hoyukey.so || true
-          fi
-          if command -v fcitx5-remote >/dev/null 2>&1; then
-              fcitx5-remote -r || true
-          fi
-          exit 0
-          EOF
-          chmod 755 deb-pkg/DEBIAN/postinst
-
-          dpkg-deb --build deb-pkg dist-linux/HoyuKey.deb
-
-      - name: Upload Linux Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: hoyukey-linux
-          path: |
-            dist-linux/HoyuKey.deb
-            dist-linux/HoyuKey.tar.gz
-          retention-days: 5
-
   publish:
     name: Publish GitHub Release
-    needs: [version, build-windows, build-linux]
+    needs: [version, build-windows]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     steps:
@@ -179,12 +87,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: hoyukey-windows
-          path: release-assets
-
-      - name: Download Linux Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: hoyukey-linux
           path: release-assets
 
       - name: Publish GitHub Pre-Release
@@ -200,9 +102,7 @@ jobs:
 
             | File | Nền tảng | Mô tả |
             | :--- | :--- | :--- |
-            | `HoyuKey.exe` | Windows | Chạy trực tiếp |
-            | `HoyuKey.deb` | Ubuntu, Debian, Linux Mint | Gói cài đặt |
-            | `HoyuKey.tar.gz` | Arch Linux, Fedora, distro khác | Cài đặt bằng script |
+            | `HoyuKey.exe` | Windows x64 | Chạy trực tiếp |
 
             ---
             ### Hướng dẫn cài đặt trên Windows:
@@ -213,15 +113,7 @@ jobs:
             2. Mở **Windows Security** -> chọn **Virus & threat protection**.
             3. Tại mục **Virus & threat protection settings**, chọn **Manage settings**.
             4. Cuộn xuống mục **Exclusions**, chọn **Add or remove exclusions** rồi thêm thư mục vừa tạo.
-
-            ---
-            ### Hướng dẫn cài đặt trên Linux:
-            - Ubuntu, Debian, Linux Mint: Nhấp đúp vào `HoyuKey.deb` để cài (hoặc chạy lệnh `sudo dpkg -i HoyuKey.deb`).
-            - Arch Linux, Fedora, distro khác: Giải nén `HoyuKey.tar.gz` rồi chạy `./install.sh`.
-            - Cài xong, mở cấu hình Fcitx5 và thêm HoyuKey vào danh sách bộ gõ.
           prerelease: true
           draft: false
           files: |
             release-assets/HoyuKey.exe
-            release-assets/HoyuKey.deb
-            release-assets/HoyuKey.tar.gz
