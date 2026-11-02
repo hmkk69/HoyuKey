@@ -20,6 +20,12 @@ pub struct Config {
     pub modern_tone: bool,
     /// Phím tắt chuyển đổi chế độ V / E
     pub switch_key: SwitchKey,
+    /// Bật / Tắt phím tắt chuyển đổi (mặc định true)
+    pub switch_key_enabled: bool,
+    /// Tắt phím tắt tạm thời cho các ứng dụng chỉ định (mặc định false)
+    pub pause_shortcut: bool,
+    /// Danh sách tiến trình ứng dụng tạm dừng phím tắt chuyển đổi (mặc định "")
+    pub pause_shortcut_apps: String,
     /// Tự động khôi phục từ khi gõ từ không hợp lệ
     pub auto_restore: bool,
     /// Bỏ dấu & thêm mũ Telex tự do bất kỳ lúc nào trong từ (hienej -> hiện, dặtd -> đặt)
@@ -67,6 +73,9 @@ impl Default for Config {
             input_method: InputMethod::Telex,
             modern_tone: true,
             switch_key: SwitchKey::CtrlShift,
+            switch_key_enabled: true,
+            pause_shortcut: false,
+            pause_shortcut_apps: String::new(),
             auto_restore: true,
             free_marking: true,
             smart_english: true,
@@ -172,8 +181,9 @@ impl Config {
 
     pub fn to_json_string(&self) -> String {
         let escaped_browser_apps = self.browser_apps.replace('\\', "\\\\").replace('"', "\\\"");
+        let escaped_pause_apps = self.pause_shortcut_apps.replace('\\', "\\\\").replace('"', "\\\"");
         format!(
-            "{{\n  \"enabled\": {},\n  \"input_method\": \"{}\",\n  \"modern_tone\": {},\n  \"switch_key\": \"{}\",\n  \"auto_restore\": {},\n  \"free_marking\": {},\n  \"smart_english\": {},\n  \"modify_tone_in_word\": {},\n  \"simple_telex\": {},\n  \"dynamic_caret\": {},\n  \"start_with_windows\": {},\n  \"auto_caps_line\": {},\n  \"auto_caps_sentence\": {},\n  \"auto_period_enter\": {},\n  \"browser_compatibility\": {},\n  \"browser_apps\": \"{}\",\n  \"remember_app_state\": {},\n  \"limit_ram\": {},\n  \"max_ram_mb\": {},\n  \"notify_on_startup\": {},\n  \"notify_on_toggle\": {},\n  \"update_prerelease\": {},\n  \"auto_check_updates\": {}\n}}\n",
+            "{{\n  \"enabled\": {},\n  \"input_method\": \"{}\",\n  \"modern_tone\": {},\n  \"switch_key\": \"{}\",\n  \"switch_key_enabled\": {},\n  \"pause_shortcut\": {},\n  \"pause_shortcut_apps\": \"{}\",\n  \"auto_restore\": {},\n  \"free_marking\": {},\n  \"smart_english\": {},\n  \"modify_tone_in_word\": {},\n  \"simple_telex\": {},\n  \"dynamic_caret\": {},\n  \"start_with_windows\": {},\n  \"auto_caps_line\": {},\n  \"auto_caps_sentence\": {},\n  \"auto_period_enter\": {},\n  \"browser_compatibility\": {},\n  \"browser_apps\": \"{}\",\n  \"remember_app_state\": {},\n  \"limit_ram\": {},\n  \"max_ram_mb\": {},\n  \"notify_on_startup\": {},\n  \"notify_on_toggle\": {},\n  \"update_prerelease\": {},\n  \"auto_check_updates\": {}\n}}\n",
             self.enabled,
             match self.input_method {
                 InputMethod::Telex => "Telex",
@@ -184,6 +194,9 @@ impl Config {
                 SwitchKey::CtrlShift => "CtrlShift",
                 SwitchKey::AltZ => "AltZ",
             },
+            self.switch_key_enabled,
+            self.pause_shortcut,
+            escaped_pause_apps,
             self.auto_restore,
             self.free_marking,
             self.smart_english,
@@ -226,6 +239,9 @@ impl Config {
                         self.switch_key = SwitchKey::CtrlShift;
                     }
                 }
+                "switch_key_enabled" => self.switch_key_enabled = val == "true",
+                "pause_shortcut" => self.pause_shortcut = val == "true",
+                "pause_shortcut_apps" => self.pause_shortcut_apps = val,
                 "auto_restore" => self.auto_restore = val == "true",
                 "free_marking" => self.free_marking = val == "true",
                 "smart_english" => self.smart_english = val == "true",

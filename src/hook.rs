@@ -348,19 +348,25 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
         // Nếu dùng phím tắt Ctrl + Shift: chuyển chế độ khi người dùng nhả phím (chuẩn Windows)
         if is_ctrl_key || is_shift_key {
-            let switch_key = {
+            let (switch_key, switch_key_enabled, pause_shortcut, pause_shortcut_apps) = {
                 let state = GLOBAL_STATE.lock().unwrap();
-                state.config.switch_key
+                (
+                    state.config.switch_key,
+                    state.config.switch_key_enabled,
+                    state.config.pause_shortcut,
+                    state.config.pause_shortcut_apps.clone(),
+                )
             };
+            let is_shortcut_allowed = switch_key_enabled && (!pause_shortcut || !is_foreground_paused_app(&pause_shortcut_apps));
             if switch_key == SwitchKey::CtrlShift {
                 if is_ctrl_key {
                     CTRL_IS_DOWN.store(false, Ordering::SeqCst);
-                    if CTRL_SHIFT_READY.swap(false, Ordering::SeqCst) {
+                    if CTRL_SHIFT_READY.swap(false, Ordering::SeqCst) && is_shortcut_allowed {
                         toggle_vietnamese_mode();
                     }
                 } else if is_shift_key {
                     SHIFT_IS_DOWN.store(false, Ordering::SeqCst);
-                    if CTRL_SHIFT_READY.swap(false, Ordering::SeqCst) {
+                    if CTRL_SHIFT_READY.swap(false, Ordering::SeqCst) && is_shortcut_allowed {
                         toggle_vietnamese_mode();
                     }
                 }
@@ -406,37 +412,48 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
     // 4. Kiểm tra phím tắt chuyển đổi chế độ V / E
     if is_ctrl_key || is_shift_key || is_z {
-        let switch_key = {
+        let (switch_key, switch_key_enabled, pause_shortcut, pause_shortcut_apps) = {
             let state = GLOBAL_STATE.lock().unwrap();
-            state.config.switch_key
+            (
+                state.config.switch_key,
+                state.config.switch_key_enabled,
+                state.config.pause_shortcut,
+                state.config.pause_shortcut_apps.clone(),
+            )
         };
-        match switch_key {
-            SwitchKey::CtrlShift => {
-                if is_ctrl_key {
-                    CTRL_IS_DOWN.store(true, Ordering::SeqCst);
-                    if SHIFT_IS_DOWN.load(Ordering::SeqCst) {
-                        CTRL_SHIFT_READY.store(true, Ordering::SeqCst);
-                    }
-                } else if is_shift_key {
-                    SHIFT_IS_DOWN.store(true, Ordering::SeqCst);
-                    if CTRL_IS_DOWN.load(Ordering::SeqCst) {
-                        CTRL_SHIFT_READY.store(true, Ordering::SeqCst);
-                    }
-                } else {
-                    // Phím thứ 3 được nhấn -> hủy chuyển chế độ
-                    CTRL_SHIFT_READY.store(false, Ordering::SeqCst);
-                }
-            }
-            SwitchKey::AltZ => {
-                if is_z {
-                    let alt_down = (GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000) != 0;
-                    if alt_down {
-                        toggle_vietnamese_mode();
-                        BLOCKED_VK[vk_idx].store(true, Ordering::SeqCst);
-                        return 1;
+        let is_shortcut_allowed = switch_key_enabled && (!pause_shortcut || !is_foreground_paused_app(&pause_shortcut_apps));
+
+        if is_shortcut_allowed {
+            match switch_key {
+                SwitchKey::CtrlShift => {
+                    if is_ctrl_key {
+                        CTRL_IS_DOWN.store(true, Ordering::SeqCst);
+                        if SHIFT_IS_DOWN.load(Ordering::SeqCst) {
+                            CTRL_SHIFT_READY.store(true, Ordering::SeqCst);
+                        }
+                    } else if is_shift_key {
+                        SHIFT_IS_DOWN.store(true, Ordering::SeqCst);
+                        if CTRL_IS_DOWN.load(Ordering::SeqCst) {
+                            CTRL_SHIFT_READY.store(true, Ordering::SeqCst);
+                        }
+                    } else {
+                        // Phím thứ 3 được nhấn -> hủy chuyển chế độ
+                        CTRL_SHIFT_READY.store(false, Ordering::SeqCst);
                     }
                 }
+                SwitchKey::AltZ => {
+                    if is_z {
+                        let alt_down = (GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000) != 0;
+                        if alt_down {
+                            toggle_vietnamese_mode();
+                            BLOCKED_VK[vk_idx].store(true, Ordering::SeqCst);
+                            return 1;
+                        }
+                    }
+                }
             }
+        } else {
+            CTRL_SHIFT_READY.store(false, Ordering::SeqCst);
         }
     }
 
@@ -940,6 +957,24 @@ unsafe fn is_foreground_browser_app(browser_apps: &str) -> bool {
     LAST_CHECKED_HWND.store(hwnd as isize, Ordering::Relaxed);
     LAST_CHECKED_IS_BROWSER.store(is_browser, Ordering::Relaxed);
     is_browser
+}
+
+pub(crate) unsafe fn is_foreground_paused_app(pause_apps: &str) -> bool {
+    if pause_apps.trim().is_empty() {
+        return false;
+    }
+    let hwnd = GetForegroundWindow();
+    if hwnd.is_null() {
+        return false;
+    }
+    if let Some(exe_name) = get_process_name_by_hwnd(hwnd) {
+        pause_apps.split(',').any(|app| {
+            let app = app.trim().to_ascii_lowercase();
+            !app.is_empty() && (exe_name == app || exe_name == format!("{}.exe", app))
+        })
+    } else {
+        false
+    }
 }
 
 unsafe fn is_focused_in_web_content() -> bool {

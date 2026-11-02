@@ -48,6 +48,10 @@ static SIMPLE_TELEX_PROGRESS: AtomicU32 = AtomicU32::new(0);
 static DYNAMIC_CARET_PROGRESS: AtomicU32 = AtomicU32::new(0);
 static INPUT_METHOD_PROGRESS: AtomicU32 = AtomicU32::new(0); // 0 = Telex, 1000 = VNI
 static SWITCH_KEY_PROGRESS: AtomicU32 = AtomicU32::new(0);    // 0 = Ctrl+Shift, 1000 = Alt+Z
+static SWITCH_KEY_ENABLED_PROGRESS: AtomicU32 = AtomicU32::new(1000);
+static PAUSE_SHORTCUT_PROGRESS: AtomicU32 = AtomicU32::new(0);
+static PAUSE_SHORTCUT_ANIM: AtomicU32 = AtomicU32::new(0);
+static PAUSE_SHORTCUT_INPUT_FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 const V_BGRA_32: &[u8] = include_bytes!("../icon/v_32.bin");
 const E_BGRA_32: &[u8] = include_bytes!("../icon/e_32.bin");
 
@@ -212,12 +216,20 @@ static ALL_SEARCH_ITEMS: &[SearchSettingItem] = &[
         kind: SearchItemKind::Toggle,
     },
     SearchSettingItem {
+        id: 24,
+        title: "Tắt phím tắt tạm thời",
+        desc: "Tự động tắt phím tắt chuyển đổi khi dùng các ứng dụng chỉ định",
+        category: "Nâng cao",
+        keywords: "tat phim tat tam thoi pause shortcut disable shortcut game ung dung chi dinh",
+        kind: SearchItemKind::Toggle,
+    },
+    SearchSettingItem {
         id: 15,
         title: "Phím tắt chuyển đổi",
         desc: "Chuyển nhanh giữa Tiếng Việt và Tiếng Anh",
         category: "Cài đặt HoyuKey",
         keywords: "phim tat chuyen doi switch key ctrl shift alt z chuyen nhanh giua tieng viet va tieng anh",
-        kind: SearchItemKind::Action(2),
+        kind: SearchItemKind::Toggle,
     },
     SearchSettingItem {
         id: 16,
@@ -354,6 +366,7 @@ fn get_item_toggle_progress(item_id: u32) -> f32 {
         11 => AUTO_RESTORE_PROGRESS.load(Ordering::SeqCst),
         12 => BROWSER_COMPAT_PROGRESS.load(Ordering::SeqCst),
         14 => REMEMBER_APP_PROGRESS.load(Ordering::SeqCst),
+        15 => SWITCH_KEY_ENABLED_PROGRESS.load(Ordering::SeqCst),
         16 => START_WITH_WINDOWS_PROGRESS.load(Ordering::SeqCst),
         17 => NOTIFY_STARTUP_PROGRESS.load(Ordering::SeqCst),
         18 => NOTIFY_TOGGLE_PROGRESS.load(Ordering::SeqCst),
@@ -361,6 +374,11 @@ fn get_item_toggle_progress(item_id: u32) -> f32 {
         20 => UPDATE_PRERELEASE_PROGRESS.load(Ordering::SeqCst),
         21 => RAM_LIMIT_PROGRESS.load(Ordering::SeqCst),
         23 => MODIFY_TONE_PROGRESS.load(Ordering::SeqCst),
+        24 => if GLOBAL_STATE.lock().unwrap().config.switch_key_enabled {
+            PAUSE_SHORTCUT_PROGRESS.load(Ordering::SeqCst)
+        } else {
+            0
+        },
         _ => 0,
     };
     let p_norm = p as f32 / 1000.0;
@@ -492,8 +510,13 @@ fn handle_search_item_click(item_id: u32, hwnd: HWND) {
             state.config.save();
         }
         15 => {
-            start_page_transition(hwnd, 2, 1);
-            return;
+            let mut state = GLOBAL_STATE.lock().unwrap();
+            let new_val = !state.config.switch_key_enabled;
+            state.config.switch_key_enabled = new_val;
+            if !new_val {
+                state.config.pause_shortcut = false;
+            }
+            state.config.save();
         }
         16 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
@@ -536,6 +559,13 @@ fn handle_search_item_click(item_id: u32, hwnd: HWND) {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.modify_tone_in_word = !state.config.modify_tone_in_word;
             state.config.save();
+        }
+        24 => {
+            let mut state = GLOBAL_STATE.lock().unwrap();
+            if state.config.switch_key_enabled {
+                state.config.pause_shortcut = !state.config.pause_shortcut;
+                state.config.save();
+            }
         }
         _ => {}
     }
@@ -768,6 +798,11 @@ pub fn show_settings_window() {
         DYNAMIC_CARET_PROGRESS.store(if state.config.dynamic_caret { 1000 } else { 0 }, Ordering::SeqCst);
         INPUT_METHOD_PROGRESS.store(if state.config.input_method == InputMethod::Vni { 1000 } else { 0 }, Ordering::SeqCst);
         SWITCH_KEY_PROGRESS.store(if state.config.switch_key == SwitchKey::AltZ { 1000 } else { 0 }, Ordering::SeqCst);
+        SWITCH_KEY_ENABLED_PROGRESS.store(if state.config.switch_key_enabled { 1000 } else { 0 }, Ordering::SeqCst);
+        let pause_active = state.config.switch_key_enabled && state.config.pause_shortcut;
+        PAUSE_SHORTCUT_PROGRESS.store(if pause_active { 1000 } else { 0 }, Ordering::SeqCst);
+        PAUSE_SHORTCUT_ANIM.store(if pause_active { 1000 } else { 0 }, Ordering::SeqCst);
+        PAUSE_SHORTCUT_INPUT_FOCUSED.store(false, Ordering::SeqCst);
         START_WITH_WINDOWS_PROGRESS.store(if state.config.start_with_windows { 1000 } else { 0 }, Ordering::SeqCst);
         NOTIFY_STARTUP_PROGRESS.store(if state.config.notify_on_startup { 1000 } else { 0 }, Ordering::SeqCst);
         NOTIFY_TOGGLE_PROGRESS.store(if state.config.notify_on_toggle { 1000 } else { 0 }, Ordering::SeqCst);
@@ -959,6 +994,10 @@ unsafe extern "system" fn settings_wnd_proc(
                 advance_anim(if config.dynamic_caret { 1000 } else { 0 }, &DYNAMIC_CARET_PROGRESS);
                 advance_anim(if config.input_method == InputMethod::Vni { 1000 } else { 0 }, &INPUT_METHOD_PROGRESS);
                 advance_anim(if config.switch_key == SwitchKey::AltZ { 1000 } else { 0 }, &SWITCH_KEY_PROGRESS);
+                advance_anim(if config.switch_key_enabled { 1000 } else { 0 }, &SWITCH_KEY_ENABLED_PROGRESS);
+                let pause_active = config.switch_key_enabled && config.pause_shortcut;
+                advance_anim(if pause_active { 1000 } else { 0 }, &PAUSE_SHORTCUT_PROGRESS);
+                advance_anim(if pause_active { 1000 } else { 0 }, &PAUSE_SHORTCUT_ANIM);
                 advance_anim(if config.start_with_windows { 1000 } else { 0 }, &START_WITH_WINDOWS_PROGRESS);
                 advance_anim(if config.notify_on_startup { 1000 } else { 0 }, &NOTIFY_STARTUP_PROGRESS);
                 advance_anim(if config.notify_on_toggle { 1000 } else { 0 }, &NOTIFY_TOGGLE_PROGRESS);
@@ -1042,7 +1081,7 @@ unsafe extern "system" fn settings_wnd_proc(
 
             let current_page = CURRENT_PAGE.load(Ordering::SeqCst);
             let hover = get_hovered_item(pt.x, pt.y, w, current_page);
-            if hover == 100 {
+            if hover == 100 || hover == 72 || hover == 74 {
                 SetCursor(LoadCursorW(null_mut(), IDC_IBEAM));
                 1
             } else if hover != -1 {
@@ -1122,6 +1161,40 @@ unsafe extern "system" fn settings_wnd_proc(
                     TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
                     InvalidateRect(hwnd, null_mut(), 0);
                     return 0;
+                }
+            } else if page == 5 && BROWSER_INPUT_FOCUSED.load(Ordering::SeqCst) {
+                let ctrl = (GetKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
+                let vk = wparam as usize;
+                if ctrl && vk == 0x56 /* 'V' */ {
+                    if let Some(text) = unsafe { crate::hook::get_clipboard_text() } {
+                        let mut state = GLOBAL_STATE.lock().unwrap();
+                        for ch in text.chars() {
+                            if !ch.is_control() && state.config.browser_apps.len() < 120 {
+                                state.config.browser_apps.push(ch);
+                            }
+                        }
+                        state.config.save();
+                        drop(state);
+                        InvalidateRect(hwnd, null_mut(), 0);
+                        return 0;
+                    }
+                }
+            } else if page == 5 && PAUSE_SHORTCUT_INPUT_FOCUSED.load(Ordering::SeqCst) {
+                let ctrl = (GetKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
+                let vk = wparam as usize;
+                if ctrl && vk == 0x56 /* 'V' */ {
+                    if let Some(text) = unsafe { crate::hook::get_clipboard_text() } {
+                        let mut state = GLOBAL_STATE.lock().unwrap();
+                        for ch in text.chars() {
+                            if !ch.is_control() && state.config.pause_shortcut_apps.len() < 120 {
+                                state.config.pause_shortcut_apps.push(ch);
+                            }
+                        }
+                        state.config.save();
+                        drop(state);
+                        InvalidateRect(hwnd, null_mut(), 0);
+                        return 0;
+                    }
                 }
             }
             DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -1281,6 +1354,31 @@ unsafe extern "system" fn settings_wnd_proc(
                         return 0;
                     }
                 }
+            } else if page == 5 && PAUSE_SHORTCUT_INPUT_FOCUSED.load(Ordering::SeqCst) {
+                let ch_code = wparam as u16;
+                let mut state = GLOBAL_STATE.lock().unwrap();
+                if ch_code == 0x08 { // Backspace
+                    state.config.pause_shortcut_apps.pop();
+                    state.config.save();
+                    drop(state);
+                    InvalidateRect(hwnd, null_mut(), 0);
+                    return 0;
+                } else if ch_code == 0x0D || ch_code == 0x1B { // Enter or Esc
+                    PAUSE_SHORTCUT_INPUT_FOCUSED.store(false, Ordering::SeqCst);
+                    drop(state);
+                    InvalidateRect(hwnd, null_mut(), 0);
+                    return 0;
+                } else if ch_code >= 32 && ch_code < 127 { // Printable ASCII
+                    if let Some(ch) = char::from_u32(ch_code as u32) {
+                        if state.config.pause_shortcut_apps.len() < 120 {
+                            state.config.pause_shortcut_apps.push(ch);
+                            state.config.save();
+                        }
+                        drop(state);
+                        InvalidateRect(hwnd, null_mut(), 0);
+                        return 0;
+                    }
+                }
             }
             DefWindowProcW(hwnd, msg, wparam, lparam)
         }
@@ -1345,6 +1443,18 @@ fn get_max_scroll_for_page(page: u8) -> i32 {
             (content_bottom - 576).max(0)
         }
         3 => 110,
+        5 => {
+            let anim_p1 = BROWSER_INPUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let ease1 = 1.0 - (1.0 - anim_p1).powi(3);
+            let h1 = (68.0 + 64.0 * ease1).round() as i32;
+
+            let anim_p2 = PAUSE_SHORTCUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let ease2 = 1.0 - (1.0 - anim_p2).powi(3);
+            let h2 = (68.0 + 64.0 * ease2).round() as i32;
+
+            let total_bottom = 86 + h1 + 14 + h2 + 14 + 68 + 24;
+            (total_bottom - 570).max(0)
+        }
         _ => 0,
     }
 }
@@ -1512,9 +1622,17 @@ fn get_hovered_item(x: i32, y: i32, client_w: i32, page: u8) -> i32 {
             }
         } else if page == 2 {
             // Cài đặt HoyuKey:
+            // Switch for Card 1 (Phím tắt chuyển đổi): ID 40
+            if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 96 && y_content <= 140 {
+                return 40;
+            }
+            let sw_enabled = {
+                let state = GLOBAL_STATE.lock().unwrap();
+                state.config.switch_key_enabled
+            };
             let sw_tab_x = card_x + 20;
             let sw_total_w = card_w - 40;
-            if x >= sw_tab_x && x <= sw_tab_x + sw_total_w && y_content >= 152 && y_content <= 196 {
+            if sw_enabled && x >= sw_tab_x && x <= sw_tab_x + sw_total_w && y_content >= 152 && y_content <= 196 {
                 return 46;
             }
             if x >= right_ctrl - 52 && x <= right_ctrl {
@@ -1578,6 +1696,12 @@ fn get_hovered_item(x: i32, y: i32, client_w: i32, page: u8) -> i32 {
             }
         } else if page == 5 {
             // Nâng cao:
+            let (sw_key_enabled, _) = {
+                let state = GLOBAL_STATE.lock().unwrap();
+                (state.config.switch_key_enabled, state.config.pause_shortcut)
+            };
+
+            // Card 1 switch: Tương thích trình duyệt
             if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 96 && y_content <= 140 {
                 return 71;
             }
@@ -1585,19 +1709,42 @@ fn get_hovered_item(x: i32, y: i32, client_w: i32, page: u8) -> i32 {
             if input_anim > 200 {
                 let box_x = card_x + 20;
                 let box_w = card_w - 40;
-                let box_y = 160;
+                let box_y = 158;
                 let box_h = 42;
                 if x >= box_x && x <= box_x + box_w && y_content >= box_y && y_content <= box_y + box_h {
                     return 72;
                 }
             }
 
-            let anim_p = BROWSER_INPUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
-            let anim_ease = 1.0 - (1.0 - anim_p).powi(3);
-            let card1_h = (68.0 + 64.0 * anim_ease).round() as i32;
+            let anim1_p = BROWSER_INPUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let anim1_ease = 1.0 - (1.0 - anim1_p).powi(3);
+            let card1_h = (68.0 + 64.0 * anim1_ease).round() as i32;
             let card2_y = 86 + card1_h + 14;
-            if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card2_y + 10 && y_content <= card2_y + 54 {
+
+            // Card 2 switch: Tắt phím tắt tạm thời (chỉ hover nếu switch_key_enabled)
+            if sw_key_enabled && x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card2_y + 10 && y_content <= card2_y + 54 {
                 return 73;
+            }
+
+            let input2_anim = PAUSE_SHORTCUT_ANIM.load(Ordering::SeqCst);
+            if sw_key_enabled && input2_anim > 200 {
+                let box_x = card_x + 20;
+                let box_w = card_w - 40;
+                let box_y = card2_y + 72;
+                let box_h = 42;
+                if x >= box_x && x <= box_x + box_w && y_content >= box_y && y_content <= box_y + box_h {
+                    return 74;
+                }
+            }
+
+            let anim2_p = PAUSE_SHORTCUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let anim2_ease = 1.0 - (1.0 - anim2_p).powi(3);
+            let card2_h = (68.0 + 64.0 * anim2_ease).round() as i32;
+            let card3_y = card2_y + card2_h + 14;
+
+            // Card 3 switch: Ghi nhớ trạng thái theo ứng dụng
+            if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card3_y + 10 && y_content <= card3_y + 54 {
+                return 75;
             }
         }
     }
@@ -1820,10 +1967,20 @@ fn handle_mouse_click(hwnd: HWND, x: i32, y: i32, client_w: i32) {
                 }
             }
         } else if page == 2 {
-            let sw_tab_x = card_x + 20;
-            let sw_total_w = card_w - 40;
-            let sw_tab_w = (sw_total_w - 8) / 2;
-            if y_content >= 152 && y_content <= 196 {
+            // 1. Công tắc Bật/Tắt phím tắt chuyển đổi (y = 96..140)
+            if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 96 && y_content <= 140 {
+                let new_val = !state.config.switch_key_enabled;
+                state.config.switch_key_enabled = new_val;
+                if !new_val {
+                    state.config.pause_shortcut = false;
+                    PAUSE_SHORTCUT_PROGRESS.store(0, Ordering::SeqCst);
+                    PAUSE_SHORTCUT_ANIM.store(0, Ordering::SeqCst);
+                }
+                changed = true;
+            } else if state.config.switch_key_enabled && y_content >= 152 && y_content <= 196 {
+                let sw_tab_x = card_x + 20;
+                let sw_total_w = card_w - 40;
+                let sw_tab_w = (sw_total_w - 8) / 2;
                 if x >= sw_tab_x && x <= sw_tab_x + sw_tab_w + 4 {
                     if state.config.switch_key != SwitchKey::CtrlShift {
                         state.config.switch_key = SwitchKey::CtrlShift;
@@ -1908,37 +2065,52 @@ fn handle_mouse_click(hwnd: HWND, x: i32, y: i32, client_w: i32) {
                 }
             }
         } else if page == 5 {
-            // Hỗ trợ Tương thích trình duyệt trong Nâng cao
+            let anim1_p = BROWSER_INPUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let anim1_ease = 1.0 - (1.0 - anim1_p).powi(3);
+            let card1_h = (68.0 + 64.0 * anim1_ease).round() as i32;
+            let card2_y = 86 + card1_h + 14;
+
+            let anim2_p = PAUSE_SHORTCUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let anim2_ease = 1.0 - (1.0 - anim2_p).powi(3);
+            let card2_h = (68.0 + 64.0 * anim2_ease).round() as i32;
+            let card3_y = card2_y + card2_h + 14;
+
+            let box_x = card_x + 20;
+            let box_w = card_w - 40;
+
+            let mut clicked_browser_box = false;
+            let mut clicked_pause_box = false;
+
+            // Card 1 switch: Tương thích trình duyệt
             if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 96 && y_content <= 140 {
                 state.config.browser_compatibility = !state.config.browser_compatibility;
                 changed = true;
-            }
-
-            let anim_p = BROWSER_INPUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
-            let anim_ease = 1.0 - (1.0 - anim_p).powi(3);
-            let card1_h = (68.0 + 64.0 * anim_ease).round() as i32;
-            let card2_y = 86 + card1_h + 14;
-            if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card2_y + 10 && y_content <= card2_y + 54 {
+            } else if BROWSER_INPUT_ANIM.load(Ordering::SeqCst) > 200 && x >= box_x && x <= box_x + box_w && y_content >= 158 && y_content <= 200 {
+                BROWSER_INPUT_FOCUSED.store(true, Ordering::SeqCst);
+                clicked_browser_box = true;
+                unsafe { InvalidateRect(hwnd, null_mut(), 0); }
+            } else if state.config.switch_key_enabled && x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card2_y + 10 && y_content <= card2_y + 54 {
+                // Card 2 switch: Tắt phím tắt tạm thời (chỉ cho phép click khi switch_key_enabled)
+                state.config.pause_shortcut = !state.config.pause_shortcut;
+                changed = true;
+            } else if state.config.switch_key_enabled && PAUSE_SHORTCUT_ANIM.load(Ordering::SeqCst) > 200 && x >= box_x && x <= box_x + box_w && y_content >= card2_y + 72 && y_content <= card2_y + 114 {
+                // Card 2 input box
+                PAUSE_SHORTCUT_INPUT_FOCUSED.store(true, Ordering::SeqCst);
+                clicked_pause_box = true;
+                unsafe { InvalidateRect(hwnd, null_mut(), 0); }
+            } else if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card3_y + 10 && y_content <= card3_y + 54 {
+                // Card 3 switch: Ghi nhớ trạng thái theo ứng dụng
                 state.config.remember_app_state = !state.config.remember_app_state;
                 changed = true;
             }
 
-            let input_anim = BROWSER_INPUT_ANIM.load(Ordering::SeqCst);
-            if input_anim > 200 {
-                let box_x = card_x + 20;
-                let box_w = card_w - 40;
-                let box_y = 160;
-                let box_h = 42;
-                if x >= box_x && x <= box_x + box_w && y_content >= box_y && y_content <= box_y + box_h {
-                    BROWSER_INPUT_FOCUSED.store(true, Ordering::SeqCst);
-                    unsafe { InvalidateRect(hwnd, null_mut(), 0); }
-                } else {
-                    if BROWSER_INPUT_FOCUSED.swap(false, Ordering::SeqCst) {
-                        unsafe { InvalidateRect(hwnd, null_mut(), 0); }
-                    }
-                }
-            } else {
+            if !clicked_browser_box {
                 if BROWSER_INPUT_FOCUSED.swap(false, Ordering::SeqCst) {
+                    unsafe { InvalidateRect(hwnd, null_mut(), 0); }
+                }
+            }
+            if !clicked_pause_box {
+                if PAUSE_SHORTCUT_INPUT_FOCUSED.swap(false, Ordering::SeqCst) {
                     unsafe { InvalidateRect(hwnd, null_mut(), 0); }
                 }
             }
@@ -2590,17 +2762,25 @@ unsafe fn render_page_elements(
                         _ => draw_vector_info_icon(graphics, left_text + 20, item_y + 31, ARGB_TEXT_PRIMARY),
                     }
 
+                    let is_disabled_item = item.id == 24 && !{
+                        let state = GLOBAL_STATE.lock().unwrap();
+                        state.config.switch_key_enabled
+                    };
+
+                    let title_color = if is_disabled_item { ARGB_STATUS_MUTED } else { ARGB_TEXT_PRIMARY };
+                    let desc_color = if is_disabled_item { 0xFF454550 } else { ARGB_TEXT_MUTED };
+
                     // Title & Description (truncated to prevent bleeding behind switches/arrows)
                     let title_display = truncate_text_to_width(graphics, font_bold, item.title, max_text_w);
-                    draw_gdip_text(graphics, font_bold, &title_display, left_text + 52, item_y + 10, ARGB_TEXT_PRIMARY, false);
+                    draw_gdip_text(graphics, font_bold, &title_display, left_text + 52, item_y + 10, title_color, false);
 
                     let desc_display = truncate_text_to_width(graphics, font_desc, item.desc, max_text_w);
-                    draw_gdip_text(graphics, font_desc, &desc_display, left_text + 52, item_y + 34, ARGB_TEXT_MUTED, false);
+                    draw_gdip_text(graphics, font_desc, &desc_display, left_text + 52, item_y + 34, desc_color, false);
 
                     // Right control: Toggle or Action Chevron
                     match item.kind {
                         SearchItemKind::Toggle => {
-                            let p = get_item_toggle_progress(item.id);
+                            let p = if is_disabled_item { 0.0 } else { get_item_toggle_progress(item.id) };
                             draw_animated_switch(graphics, right_ctrl - 50, item_y + 18, p);
                         }
                         SearchItemKind::Action(_) => {
@@ -2631,6 +2811,7 @@ unsafe fn render_page_elements(
                 36,
                 method_progress,
                 font_tab,
+                true,
             );
 
             // Card 2: 7 Tùy chọn đánh máy thông minh (y = 174..674, cao 500px)
@@ -2694,10 +2875,18 @@ unsafe fn render_page_elements(
             draw_animated_switch(graphics, right_ctrl - 50, 626 - sy, caret_progress);
 
         } else if page == 2 {
+            let sw_key_enabled = {
+                let state = GLOBAL_STATE.lock().unwrap();
+                state.config.switch_key_enabled
+            };
+
             // Card 1: Phím tắt chuyển đổi chế độ (cao 122px, y = 86..208)
             gdiplus_draw_rounded_card(graphics, card_x, 86 - sy, card_w, 122, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
             draw_gdip_text(graphics, font_bold, "Phím tắt chuyển đổi", left_text, 102 - sy, ARGB_TEXT_PRIMARY, false);
             draw_gdip_text(graphics, font_desc, "Chuyển nhanh giữa Tiếng Việt và Tiếng Anh", left_text, 126 - sy, ARGB_TEXT_MUTED, false);
+
+            let sw_enabled_progress = SWITCH_KEY_ENABLED_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
+            draw_animated_switch(graphics, right_ctrl - 50, 104 - sy, sw_enabled_progress);
 
             let switch_progress = SWITCH_KEY_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
             let sw_total_w = card_w - 40;
@@ -2711,6 +2900,7 @@ unsafe fn render_page_elements(
                 36,
                 switch_progress,
                 font_tab,
+                sw_key_enabled,
             );
 
             // Card 2: Khởi động cùng Windows (cao 76px, y = 220..296)
@@ -2902,11 +3092,16 @@ unsafe fn render_page_elements(
             let period_enter_p = AUTO_PERIOD_ENTER_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
             draw_animated_switch(graphics, right_ctrl - 50, 250 - sy, period_enter_p);
         } else if page == 5 {
-            let anim_p = BROWSER_INPUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
-            let anim_ease = 1.0 - (1.0 - anim_p).powi(3);
+            let is_switch_enabled = {
+                let state = GLOBAL_STATE.lock().unwrap();
+                state.config.switch_key_enabled
+            };
 
-            let card_h = (68.0 + 64.0 * anim_ease).round() as i32;
-            gdiplus_draw_rounded_card(graphics, card_x, 86 - sy, card_w, card_h, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
+            let anim1_p = BROWSER_INPUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let anim1_ease = 1.0 - (1.0 - anim1_p).powi(3);
+
+            let card1_h = (68.0 + 64.0 * anim1_ease).round() as i32;
+            gdiplus_draw_rounded_card(graphics, card_x, 86 - sy, card_w, card1_h, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
 
             // 1. Tương thích trình duyệt
             draw_gdip_text(graphics, font_bold, "Tương thích trình duyệt", left_text, 98 - sy, ARGB_TEXT_PRIMARY, false);
@@ -2914,8 +3109,8 @@ unsafe fn render_page_elements(
             let compat_p = BROWSER_COMPAT_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
             draw_animated_switch(graphics, right_ctrl - 50, 104 - sy, compat_p);
 
-            if anim_ease > 0.02 {
-                let alpha_u8 = (255.0 * anim_ease).clamp(0.0, 255.0) as u32;
+            if anim1_ease > 0.02 {
+                let alpha_u8 = (255.0 * anim1_ease).clamp(0.0, 255.0) as u32;
                 let divider_color = (alpha_u8 << 24) | (ARGB_DIVIDER & 0x00FFFFFF);
                 gdiplus_draw_line(graphics, left_text, 146 - sy, right_ctrl, 146 - sy, divider_color, 1.0);
 
@@ -2944,15 +3139,74 @@ unsafe fn render_page_elements(
                 draw_gdip_text_centered(graphics, font_desc, &display_text, left_text + 8, box_y, box_w - 16, box_h, text_color);
             }
 
-            // 2. Ghi nhớ trạng thái theo ứng dụng
-            let card2_y = 86 + card_h + 14 - sy;
-            let card2_h = 68;
+            // 2. Tắt phím tắt tạm thời (chỉ hoạt động nếu phím tắt chuyển đổi được bật)
+            let card2_y = 86 + card1_h + 14 - sy;
+            let anim2_p = PAUSE_SHORTCUT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let anim2_ease = 1.0 - (1.0 - anim2_p).powi(3);
+            let card2_h = (68.0 + 64.0 * anim2_ease).round() as i32;
+
             gdiplus_draw_rounded_card(graphics, card_x, card2_y, card_w, card2_h, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
 
-            draw_gdip_text(graphics, font_bold, "Ghi nhớ trạng thái theo ứng dụng", left_text, card2_y + 12, ARGB_TEXT_PRIMARY, false);
-            draw_gdip_text(graphics, font_desc, "Tự động khôi phục chế độ E / V riêng cho từng cửa sổ ứng dụng", left_text, card2_y + 36, ARGB_TEXT_MUTED, false);
+            let (c2_title_color, c2_desc_color) = if is_switch_enabled {
+                (ARGB_TEXT_PRIMARY, ARGB_TEXT_MUTED)
+            } else {
+                (ARGB_STATUS_MUTED, 0xFF454550)
+            };
+            draw_gdip_text(graphics, font_bold, "Tắt phím tắt tạm thời", left_text, card2_y + 12, c2_title_color, false);
+            draw_gdip_text(graphics, font_desc, "Tạm dừng phím tắt chuyển đổi trong các ứng dụng được chỉ định", left_text, card2_y + 36, c2_desc_color, false);
+
+            let pause_p = if is_switch_enabled {
+                PAUSE_SHORTCUT_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0
+            } else {
+                0.0
+            };
+            draw_animated_switch(graphics, right_ctrl - 50, card2_y + 18, pause_p);
+
+            if is_switch_enabled && anim2_ease > 0.02 {
+                let alpha_u8 = (255.0 * anim2_ease).clamp(0.0, 255.0) as u32;
+                let divider_color = (alpha_u8 << 24) | (ARGB_DIVIDER & 0x00FFFFFF);
+                gdiplus_draw_line(graphics, left_text, card2_y + 60, right_ctrl, card2_y + 60, divider_color, 1.0);
+
+                let is_focused = PAUSE_SHORTCUT_INPUT_FOCUSED.load(Ordering::SeqCst);
+                let box_border = if is_focused { ARGB_WHITE } else { ARGB_CARD_BORDER };
+                let box_border_color = (alpha_u8 << 24) | (box_border & 0x00FFFFFF);
+                let box_bg_color = (alpha_u8 << 24) | (ARGB_PILL_TRACK & 0x00FFFFFF);
+                let box_y = card2_y + 72;
+                let box_w = card_w - 40;
+                let box_h = 42;
+
+                gdiplus_draw_rounded_card(graphics, left_text, box_y, box_w, box_h, 6, box_bg_color, box_border_color, 1.0);
+
+                let pause_apps_text = {
+                    let state = GLOBAL_STATE.lock().unwrap();
+                    state.config.pause_shortcut_apps.clone()
+                };
+
+                let display_text = if is_focused {
+                    format!("{}|", pause_apps_text)
+                } else if pause_apps_text.is_empty() {
+                    "Ví dụ: game.exe, lol.exe, valorant.exe".to_string()
+                } else {
+                    pause_apps_text.clone()
+                };
+
+                let text_color = if !is_focused && pause_apps_text.is_empty() {
+                    (alpha_u8 << 24) | (ARGB_STATUS_MUTED & 0x00FFFFFF)
+                } else {
+                    (alpha_u8 << 24) | (ARGB_TEXT_PRIMARY & 0x00FFFFFF)
+                };
+                draw_gdip_text_centered(graphics, font_desc, &display_text, left_text + 8, box_y, box_w - 16, box_h, text_color);
+            }
+
+            // 3. Ghi nhớ trạng thái theo ứng dụng
+            let card3_y = card2_y + card2_h + 14;
+            let card3_h = 68;
+            gdiplus_draw_rounded_card(graphics, card_x, card3_y, card_w, card3_h, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
+
+            draw_gdip_text(graphics, font_bold, "Ghi nhớ trạng thái theo ứng dụng", left_text, card3_y + 12, ARGB_TEXT_PRIMARY, false);
+            draw_gdip_text(graphics, font_desc, "Tự động khôi phục chế độ E / V riêng cho từng cửa sổ ứng dụng", left_text, card3_y + 36, ARGB_TEXT_MUTED, false);
             let remember_p = REMEMBER_APP_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
-            draw_animated_switch(graphics, right_ctrl - 50, card2_y + 18, remember_p);
+            draw_animated_switch(graphics, right_ctrl - 50, card3_y + 18, remember_p);
         }
 
         // ========================================================
@@ -3285,23 +3539,36 @@ unsafe fn draw_animated_tabs(
     tab_h: i32,
     progress: f32,
     font: *mut GpFont,
+    enabled: bool,
 ) {
     let total_w = tab_w * 2 + 8;
     let total_h = tab_h + 8;
 
-    gdiplus_draw_rounded_card(graphics, x, y, total_w, total_h, 8, ARGB_PILL_TRACK, ARGB_CARD_BORDER, 1.0);
+    let track_bg = if enabled { ARGB_PILL_TRACK } else { 0xFF18181C };
+    let border_color = if enabled { ARGB_CARD_BORDER } else { 0xFF24242A };
+    gdiplus_draw_rounded_card(graphics, x, y, total_w, total_h, 8, track_bg, border_color, 1.0);
 
     let pill_min_x = (x + 4) as f32;
     let pill_max_x = (x + 4 + tab_w) as f32;
     let pill_curr_x = pill_min_x + (pill_max_x - pill_min_x) * progress;
     let pill_y = y + 4;
 
-    gdiplus_draw_rounded_card(graphics, pill_curr_x.round() as i32, pill_y, tab_w, tab_h, 6, ARGB_WHITE, ARGB_WHITE, 1.0);
+    let pill_bg = if enabled { ARGB_WHITE } else { 0xFF2A2A32 };
+    let pill_border = if enabled { ARGB_WHITE } else { 0xFF2A2A32 };
+    gdiplus_draw_rounded_card(graphics, pill_curr_x.round() as i32, pill_y, tab_w, tab_h, 6, pill_bg, pill_border, 1.0);
 
-    let t1_color = if progress < 0.5 { ARGB_TEXT_DARK } else { ARGB_TEXT_MUTED };
+    let (t1_color, t2_color) = if enabled {
+        (
+            if progress < 0.5 { ARGB_TEXT_DARK } else { ARGB_TEXT_MUTED },
+            if progress >= 0.5 { ARGB_TEXT_DARK } else { ARGB_TEXT_MUTED },
+        )
+    } else {
+        (
+            if progress < 0.5 { ARGB_STATUS_MUTED } else { 0xFF454550 },
+            if progress >= 0.5 { ARGB_STATUS_MUTED } else { 0xFF454550 },
+        )
+    };
     draw_gdip_text_centered(graphics, font, tabs[0], x + 4, y + 4, tab_w, tab_h, t1_color);
-
-    let t2_color = if progress >= 0.5 { ARGB_TEXT_DARK } else { ARGB_TEXT_MUTED };
     draw_gdip_text_centered(graphics, font, tabs[1], x + 4 + tab_w, y + 4, tab_w, tab_h, t2_color);
 }
 
