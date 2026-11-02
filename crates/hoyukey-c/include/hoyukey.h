@@ -35,12 +35,18 @@ void hoyukey_engine_reset(HoyuKeyEngine* engine);
 
 HoyuKeyAction hoyukey_engine_process_key(HoyuKeyEngine* engine, uint32_t ch, bool is_browser);
 HoyuKeyAction hoyukey_engine_on_backspace(HoyuKeyEngine* engine);
+bool hoyukey_engine_on_enter(HoyuKeyEngine* engine);
+void hoyukey_engine_on_arrow_left(HoyuKeyEngine* engine);
+void hoyukey_engine_on_arrow_right(HoyuKeyEngine* engine);
 char* hoyukey_engine_get_current_word(HoyuKeyEngine* engine);
 
 void hoyukey_string_free(char* s);
 void hoyukey_action_free(HoyuKeyAction* action);
 
 // =================== CONFIGURATION ===================
+
+void hoyukey_engine_load_user_config(HoyuKeyEngine* engine);
+void hoyukey_engine_save_user_config(HoyuKeyEngine* engine);
 
 void hoyukey_engine_set_enabled(HoyuKeyEngine* engine, bool enabled);
 void hoyukey_engine_set_input_method(HoyuKeyEngine* engine, uint32_t method); // 0 = Telex, 1 = Vni

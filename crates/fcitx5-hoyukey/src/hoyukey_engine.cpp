@@ -70,10 +70,34 @@ void HoyuKeyAddonEngine::keyEvent(const fcitx::InputMethodEntry&, fcitx::KeyEven
         return;
     }
 
+    // Xử lý Escape hoặc Tab
+    if (key.check(FcitxKey_Escape) || key.check(FcitxKey_Tab)) {
+        hoyukey_engine_reset(engine);
+        return;
+    }
+
     // Xử lý Backspace
     if (key.check(FcitxKey_BackSpace)) {
         HoyuKeyAction action = hoyukey_engine_on_backspace(engine);
         hoyukey_action_free(&action);
+        return;
+    }
+
+    // Xử lý Enter (Xuống dòng & Tự động thêm dấu chấm câu nếu bật)
+    if (key.check(FcitxKey_Return) || key.check(FcitxKey_KP_Enter)) {
+        if (hoyukey_engine_on_enter(engine)) {
+            ic->commitString(".");
+        }
+        return;
+    }
+
+    // Xử lý Mũi tên trái / phải
+    if (key.check(FcitxKey_Left)) {
+        hoyukey_engine_on_arrow_left(engine);
+        return;
+    }
+    if (key.check(FcitxKey_Right)) {
+        hoyukey_engine_on_arrow_right(engine);
         return;
     }
 

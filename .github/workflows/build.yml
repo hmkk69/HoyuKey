@@ -78,7 +78,7 @@ jobs:
           retention-days: 5
 
   build-linux:
-    name: Build Linux (Fcitx5 & CLI)
+    name: Build Linux
     needs: version
     runs-on: ubuntu-latest
     steps:
@@ -108,25 +108,60 @@ jobs:
           cmake -B build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release
           cmake --build build
 
-      - name: Package Linux Distribution
+      - name: Package Linux Distribution (.deb & .tar.gz)
         run: |
-          mkdir -p dist-linux/fcitx5-hoyukey
-          cp crates/fcitx5-hoyukey/build/hoyukey.so dist-linux/fcitx5-hoyukey/
-          cp crates/fcitx5-hoyukey/hoyukey.conf dist-linux/fcitx5-hoyukey/
-          cp crates/fcitx5-hoyukey/hoyukey-addon.conf dist-linux/fcitx5-hoyukey/
-          cp crates/fcitx5-hoyukey/scripts/install.sh dist-linux/fcitx5-hoyukey/
-          chmod +x dist-linux/fcitx5-hoyukey/install.sh
-          tar -czf dist-linux/fcitx5-hoyukey-linux-x64.tar.gz -C dist-linux fcitx5-hoyukey
-          cp target/release/hoyukey-cli dist-linux/hoyukey-cli-linux-x64
-          chmod +x dist-linux/hoyukey-cli-linux-x64
+          mkdir -p dist-linux/HoyuKey-archive
+          cp crates/fcitx5-hoyukey/build/hoyukey.so dist-linux/HoyuKey-archive/
+          cp crates/fcitx5-hoyukey/hoyukey.conf dist-linux/HoyuKey-archive/
+          cp crates/fcitx5-hoyukey/hoyukey-addon.conf dist-linux/HoyuKey-archive/
+          cp crates/fcitx5-hoyukey/scripts/install.sh dist-linux/HoyuKey-archive/
+          chmod +x dist-linux/HoyuKey-archive/install.sh
+          tar -czf dist-linux/HoyuKey.tar.gz -C dist-linux HoyuKey-archive
+
+          # Tao goi cai dat 1-cham .deb cho Ubuntu, Debian, Linux Mint
+          mkdir -p deb-pkg/DEBIAN
+          mkdir -p deb-pkg/usr/lib/fcitx5
+          mkdir -p deb-pkg/usr/share/fcitx5/addon
+          mkdir -p deb-pkg/usr/share/fcitx5/inputmethod
+
+          cp crates/fcitx5-hoyukey/build/hoyukey.so deb-pkg/usr/lib/fcitx5/
+          cp crates/fcitx5-hoyukey/hoyukey-addon.conf deb-pkg/usr/share/fcitx5/addon/
+          cp crates/fcitx5-hoyukey/hoyukey.conf deb-pkg/usr/share/fcitx5/inputmethod/
+
+          cat << EOF > deb-pkg/DEBIAN/control
+          Package: hoyukey
+          Version: ${{ needs.version.outputs.version }}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: fcitx5
+          Maintainer: Hoyuuna
+          Description: Bo go Tieng Viet HoyuKey cho Linux (Fcitx5)
+           HoyuKey la bo go Tieng Viet sieu nhe, hien dai va on dinh viet bang Rust.
+          EOF
+
+          cat << 'EOF' > deb-pkg/DEBIAN/postinst
+          #!/bin/sh
+          set -e
+          if [ -d "/usr/lib/x86_64-linux-gnu/fcitx5" ]; then
+              ln -sf /usr/lib/fcitx5/hoyukey.so /usr/lib/x86_64-linux-gnu/fcitx5/hoyukey.so || true
+          fi
+          if command -v fcitx5-remote >/dev/null 2>&1; then
+              fcitx5-remote -r || true
+          fi
+          exit 0
+          EOF
+          chmod 755 deb-pkg/DEBIAN/postinst
+
+          dpkg-deb --build deb-pkg dist-linux/HoyuKey.deb
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: hoyukey-linux
           path: |
-            dist-linux/fcitx5-hoyukey-linux-x64.tar.gz
-            dist-linux/hoyukey-cli-linux-x64
+            dist-linux/HoyuKey.deb
+            dist-linux/HoyuKey.tar.gz
           retention-days: 5
 
   publish:
@@ -162,20 +197,22 @@ jobs:
             | File | Nền tảng | Mô tả |
             | :--- | :--- | :--- |
             | `HoyuKey.exe` | Windows x64 | Chạy trực tiếp (Portable) |
-            | `fcitx5-hoyukey-linux-x64.tar.gz` | Linux x64 (Ubuntu / Debian / Fedora / Arch) | Addon Fcitx5 (giải nén và chạy `./install.sh`) |
-            | `hoyukey-cli-linux-x64` | Linux x64 CLI | Công cụ test gõ dòng lệnh |
+            | `HoyuKey.deb` | Ubuntu / Debian / Linux Mint | Cài đặt 1 chạm (Nhấp đúp chuột để cài) |
+            | `HoyuKey.tar.gz` | Arch Linux / Fedora / Khác | Giải nén và chạy `./install.sh` |
 
             ---
-            ### Hướng dẫn cài đặt trên Linux (Fcitx5):
-            1. Tải file `fcitx5-hoyukey-linux-x64.tar.gz`.
-            2. Giải nén và chạy cài đặt:
-               ```bash
-               tar -xzf fcitx5-hoyukey-linux-x64.tar.gz
-               cd fcitx5-hoyukey
-               chmod +x install.sh
-               ./install.sh
-               ```
-            3. Mở **Fcitx5 Configuration** và thêm **HoyuKey** vào danh sách bộ gõ.
+            ### Hướng dẫn cài đặt trên Linux:
+            - **Với Ubuntu / Debian / Linux Mint**:
+              Tải file `HoyuKey.deb`, nhấp đúp chuột vào file rồi chọn **Install** (hoặc mở terminal chạy `sudo dpkg -i HoyuKey.deb`).
+            - **Với Arch Linux / Fedora / các bản phân phối khác**:
+              Tải file `HoyuKey.tar.gz`, giải nén và chạy:
+              ```bash
+              tar -xzf HoyuKey.tar.gz
+              cd HoyuKey-archive
+              chmod +x install.sh
+              ./install.sh
+              ```
+            - Sau khi cài đặt xong, mở **Fcitx5 Configuration** và thêm **HoyuKey** vào danh sách bộ gõ.
 
             ---
             ### Hướng dẫn tránh bị Windows Security chặn nhầm:
@@ -190,5 +227,5 @@ jobs:
           draft: false
           files: |
             release-assets/HoyuKey.exe
-            release-assets/fcitx5-hoyukey-linux-x64.tar.gz
-            release-assets/hoyukey-cli-linux-x64
+            release-assets/HoyuKey.deb
+            release-assets/HoyuKey.tar.gz

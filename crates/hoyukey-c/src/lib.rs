@@ -77,14 +77,31 @@ fn convert_key_action(action: KeyAction) -> HoyuKeyAction {
     }
 }
 
+fn get_user_config_path() -> Option<std::path::PathBuf> {
+    if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
+        return Some(std::path::PathBuf::from(config_home).join("hoyukey").join("config.json"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return Some(std::path::PathBuf::from(home).join(".config").join("hoyukey").join("config.json"));
+    }
+    None
+}
+
 /// Khởi tạo một phiên làm việc Engine mới
 #[no_mangle]
 pub extern "C" fn hoyukey_engine_new() -> *mut HoyuKeyEngine {
-    let engine = Box::new(HoyuKeyEngine {
+    let mut instance = Box::new(HoyuKeyEngine {
         engine: Engine::new(),
         config: TypingConfig::default(),
     });
-    Box::into_raw(engine)
+    if let Some(path) = get_user_config_path() {
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                instance.config.merge_from_json(&content);
+            }
+        }
+    }
+    Box::into_raw(instance)
 }
 
 /// Giải phóng phiên làm việc Engine
@@ -102,6 +119,33 @@ pub extern "C" fn hoyukey_engine_free(engine: *mut HoyuKeyEngine) {
 pub extern "C" fn hoyukey_engine_reset(engine: *mut HoyuKeyEngine) {
     if let Some(e) = unsafe { engine.as_mut() } {
         e.engine.reset();
+    }
+}
+
+/// Xử lý phím Enter: Trả về true nếu cần tự động thêm dấu chấm câu trước khi xuống dòng
+#[no_mangle]
+pub extern "C" fn hoyukey_engine_on_enter(engine: *mut HoyuKeyEngine) -> bool {
+    if let Some(e) = unsafe { engine.as_mut() } {
+        let should_period = e.config.auto_period_enter && e.engine.should_auto_period_before_enter();
+        e.engine.on_enter();
+        return should_period;
+    }
+    false
+}
+
+/// Xử lý phím mũi tên trái (Left Arrow)
+#[no_mangle]
+pub extern "C" fn hoyukey_engine_on_arrow_left(engine: *mut HoyuKeyEngine) {
+    if let Some(e) = unsafe { engine.as_mut() } {
+        e.engine.on_arrow_left();
+    }
+}
+
+/// Xử lý phím mũi tên phải (Right Arrow)
+#[no_mangle]
+pub extern "C" fn hoyukey_engine_on_arrow_right(engine: *mut HoyuKeyEngine) {
+    if let Some(e) = unsafe { engine.as_mut() } {
+        e.engine.on_arrow_right();
     }
 }
 
@@ -134,6 +178,38 @@ pub extern "C" fn hoyukey_engine_on_backspace(engine: *mut HoyuKeyEngine) -> Hoy
         };
     }
     HoyuKeyAction::default()
+}
+
+/// Nạp cấu hình từ file ~/.config/hoyukey/config.json
+#[no_mangle]
+pub extern "C" fn hoyukey_engine_load_user_config(engine: *mut HoyuKeyEngine) {
+    if let Some(e) = unsafe { engine.as_mut() } {
+        if let Some(path) = get_user_config_path() {
+            if path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    e.config.merge_from_json(&content);
+                    return;
+                }
+            }
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&path, e.config.to_json_string());
+        }
+    }
+}
+
+/// Lưu cấu hình hiện tại ra file ~/.config/hoyukey/config.json
+#[no_mangle]
+pub extern "C" fn hoyukey_engine_save_user_config(engine: *mut HoyuKeyEngine) {
+    if let Some(e) = unsafe { engine.as_mut() } {
+        if let Some(path) = get_user_config_path() {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&path, e.config.to_json_string());
+        }
+    }
 }
 
 /// Lấy từ đang gõ hiện tại
