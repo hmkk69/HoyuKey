@@ -49,6 +49,7 @@ static DYNAMIC_CARET_PROGRESS: AtomicU32 = AtomicU32::new(0);
 static INPUT_METHOD_PROGRESS: AtomicU32 = AtomicU32::new(0); // 0 = Telex, 1000 = VNI
 static SWITCH_KEY_PROGRESS: AtomicU32 = AtomicU32::new(0);    // 0 = Ctrl+Shift, 1000 = Alt+Z
 static SWITCH_KEY_ENABLED_PROGRESS: AtomicU32 = AtomicU32::new(1000);
+static SWITCH_KEY_ANIM: AtomicU32 = AtomicU32::new(1000);
 static PAUSE_SHORTCUT_PROGRESS: AtomicU32 = AtomicU32::new(0);
 static PAUSE_SHORTCUT_ANIM: AtomicU32 = AtomicU32::new(0);
 static PAUSE_SHORTCUT_INPUT_FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -799,6 +800,7 @@ pub fn show_settings_window() {
         INPUT_METHOD_PROGRESS.store(if state.config.input_method == InputMethod::Vni { 1000 } else { 0 }, Ordering::SeqCst);
         SWITCH_KEY_PROGRESS.store(if state.config.switch_key == SwitchKey::AltZ { 1000 } else { 0 }, Ordering::SeqCst);
         SWITCH_KEY_ENABLED_PROGRESS.store(if state.config.switch_key_enabled { 1000 } else { 0 }, Ordering::SeqCst);
+        SWITCH_KEY_ANIM.store(if state.config.switch_key_enabled { 1000 } else { 0 }, Ordering::SeqCst);
         let pause_active = state.config.switch_key_enabled && state.config.pause_shortcut;
         PAUSE_SHORTCUT_PROGRESS.store(if pause_active { 1000 } else { 0 }, Ordering::SeqCst);
         PAUSE_SHORTCUT_ANIM.store(if pause_active { 1000 } else { 0 }, Ordering::SeqCst);
@@ -995,6 +997,7 @@ unsafe extern "system" fn settings_wnd_proc(
                 advance_anim(if config.input_method == InputMethod::Vni { 1000 } else { 0 }, &INPUT_METHOD_PROGRESS);
                 advance_anim(if config.switch_key == SwitchKey::AltZ { 1000 } else { 0 }, &SWITCH_KEY_PROGRESS);
                 advance_anim(if config.switch_key_enabled { 1000 } else { 0 }, &SWITCH_KEY_ENABLED_PROGRESS);
+                advance_anim(if config.switch_key_enabled { 1000 } else { 0 }, &SWITCH_KEY_ANIM);
                 let pause_active = config.switch_key_enabled && config.pause_shortcut;
                 advance_anim(if pause_active { 1000 } else { 0 }, &PAUSE_SHORTCUT_PROGRESS);
                 advance_anim(if pause_active { 1000 } else { 0 }, &PAUSE_SHORTCUT_ANIM);
@@ -1436,11 +1439,19 @@ fn get_max_scroll_for_page(page: u8) -> i32 {
         }
         1 => 118,
         2 => {
-            let anim_p = RAM_LIMIT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
-            let anim_ease = 1.0 - (1.0 - anim_p).powi(3);
-            let extra_h = (82.0 * anim_ease).round() as i32;
-            let content_bottom = 558 + extra_h;
-            (content_bottom - 576).max(0)
+            let anim_p1 = SWITCH_KEY_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let ease1 = 1.0 - (1.0 - anim_p1).powi(3);
+            let h1 = (68.0 + 54.0 * ease1).round() as i32;
+
+            let anim_p2 = RAM_LIMIT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let ease2 = 1.0 - (1.0 - anim_p2).powi(3);
+            let h2 = (70.0 + 82.0 * ease2).round() as i32;
+
+            let card2_y = 86 + h1 + 12;
+            let notif_card_y = card2_y + 76 + 14 + 22;
+            let card_ram_y = notif_card_y + 144 + 12;
+            let total_bottom = card_ram_y + h2 + 20;
+            (total_bottom - 576).max(0)
         }
         3 => 110,
         5 => {
@@ -1622,37 +1633,48 @@ fn get_hovered_item(x: i32, y: i32, client_w: i32, page: u8) -> i32 {
             }
         } else if page == 2 {
             // Cài đặt HoyuKey:
+            let anim_sw = SWITCH_KEY_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let ease_sw = 1.0 - (1.0 - anim_sw).powi(3);
+            let card1_h = (68.0 + 54.0 * ease_sw).round() as i32;
+            let card2_y = 86 + card1_h + 12;
+            let notif_card_y = card2_y + 76 + 14 + 22;
+            let card_ram_y = notif_card_y + 144 + 12;
+
             // Switch for Card 1 (Phím tắt chuyển đổi): ID 40
             if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 96 && y_content <= 140 {
                 return 40;
             }
-            let sw_enabled = {
-                let state = GLOBAL_STATE.lock().unwrap();
-                state.config.switch_key_enabled
-            };
+
             let sw_tab_x = card_x + 20;
             let sw_total_w = card_w - 40;
-            if sw_enabled && x >= sw_tab_x && x <= sw_tab_x + sw_total_w && y_content >= 152 && y_content <= 196 {
+            if ease_sw > 0.2 && x >= sw_tab_x && x <= sw_tab_x + sw_total_w && y_content >= 150 && y_content <= 194 {
                 return 46;
             }
+
+            // Card 2: Khởi động cùng Windows
+            if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card2_y + 14 && y_content <= card2_y + 54 {
+                return 47;
+            }
+
+            // Card Thông báo
             if x >= right_ctrl - 52 && x <= right_ctrl {
-                if y_content >= 234 && y_content <= 274 {
-                    return 47;
-                }
-                if y_content >= 346 && y_content <= 386 {
+                if y_content >= notif_card_y + 14 && y_content <= notif_card_y + 54 {
                     return 49; // Thông báo khởi động
                 }
-                if y_content >= 418 && y_content <= 458 {
+                if y_content >= notif_card_y + 86 && y_content <= notif_card_y + 126 {
                     return 50; // Thông báo chuyển ngôn ngữ
                 }
-                if y_content >= 498 && y_content <= 538 {
-                    return 48; // Điều chỉnh RAM chạy nền
-                }
             }
+
+            // Card RAM
+            if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card_ram_y + 14 && y_content <= card_ram_y + 54 {
+                return 48; // Điều chỉnh RAM chạy nền
+            }
+
             let anim_p = RAM_LIMIT_ANIM.load(Ordering::SeqCst);
             if anim_p > 200 {
-                let pill_y = 598;
-                let pill_h = 34;
+                let pill_y = card_ram_y + 72 + 30 + 8;
+                let pill_h = 32;
                 if y_content >= pill_y && y_content <= pill_y + pill_h {
                     let total_w = card_w - 40;
                     let btn_w = (total_w - 18) / 4;
@@ -1967,6 +1989,13 @@ fn handle_mouse_click(hwnd: HWND, x: i32, y: i32, client_w: i32) {
                 }
             }
         } else if page == 2 {
+            let anim_sw = SWITCH_KEY_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let ease_sw = 1.0 - (1.0 - anim_sw).powi(3);
+            let card1_h = (68.0 + 54.0 * ease_sw).round() as i32;
+            let card2_y = 86 + card1_h + 12;
+            let notif_card_y = card2_y + 76 + 14 + 22;
+            let card_ram_y = notif_card_y + 144 + 12;
+
             // 1. Công tắc Bật/Tắt phím tắt chuyển đổi (y = 96..140)
             if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 96 && y_content <= 140 {
                 let new_val = !state.config.switch_key_enabled;
@@ -1977,7 +2006,7 @@ fn handle_mouse_click(hwnd: HWND, x: i32, y: i32, client_w: i32) {
                     PAUSE_SHORTCUT_ANIM.store(0, Ordering::SeqCst);
                 }
                 changed = true;
-            } else if state.config.switch_key_enabled && y_content >= 152 && y_content <= 196 {
+            } else if ease_sw > 0.2 && y_content >= 150 && y_content <= 194 {
                 let sw_tab_x = card_x + 20;
                 let sw_total_w = card_w - 40;
                 let sw_tab_w = (sw_total_w - 8) / 2;
@@ -1992,26 +2021,26 @@ fn handle_mouse_click(hwnd: HWND, x: i32, y: i32, client_w: i32) {
                         changed = true;
                     }
                 }
-            } else if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 234 && y_content <= 274 {
+            } else if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card2_y + 14 && y_content <= card2_y + 54 {
                 let new_val = !state.config.start_with_windows;
                 state.config.start_with_windows = new_val;
                 crate::autostart::set_autostart(new_val);
                 changed = true;
-            } else if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 346 && y_content <= 386 {
+            } else if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= notif_card_y + 14 && y_content <= notif_card_y + 54 {
                 state.config.notify_on_startup = !state.config.notify_on_startup;
                 changed = true;
-            } else if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 418 && y_content <= 458 {
+            } else if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= notif_card_y + 86 && y_content <= notif_card_y + 126 {
                 state.config.notify_on_toggle = !state.config.notify_on_toggle;
                 changed = true;
-            } else if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= 498 && y_content <= 538 {
+            } else if x >= right_ctrl - 52 && x <= right_ctrl && y_content >= card_ram_y + 14 && y_content <= card_ram_y + 54 {
                 state.config.limit_ram = !state.config.limit_ram;
                 crate::apply_ram_limiter(&state.config);
                 changed = true;
             } else {
                 let anim_p = RAM_LIMIT_ANIM.load(Ordering::SeqCst);
                 if anim_p > 200 {
-                    let pill_y = 598;
-                    let pill_h = 34;
+                    let pill_y = card_ram_y + 72 + 30 + 8;
+                    let pill_h = 32;
                     if y_content >= pill_y && y_content <= pill_y + pill_h {
                         let total_w = card_w - 40;
                         let btn_w = (total_w - 18) / 4;
@@ -2812,6 +2841,7 @@ unsafe fn render_page_elements(
                 method_progress,
                 font_tab,
                 true,
+                255,
             );
 
             // Card 2: 7 Tùy chọn đánh máy thông minh (y = 174..674, cao 500px)
@@ -2875,66 +2905,72 @@ unsafe fn render_page_elements(
             draw_animated_switch(graphics, right_ctrl - 50, 626 - sy, caret_progress);
 
         } else if page == 2 {
-            let sw_key_enabled = {
-                let state = GLOBAL_STATE.lock().unwrap();
-                state.config.switch_key_enabled
-            };
+            let anim_sw = SWITCH_KEY_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
+            let ease_sw = 1.0 - (1.0 - anim_sw).powi(3);
+            let card1_h = (68.0 + 54.0 * ease_sw).round() as i32;
 
-            // Card 1: Phím tắt chuyển đổi chế độ (cao 122px, y = 86..208)
-            gdiplus_draw_rounded_card(graphics, card_x, 86 - sy, card_w, 122, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
+            // Card 1: Phím tắt chuyển đổi chế độ (cao động card1_h, y = 86.. 86+card1_h)
+            gdiplus_draw_rounded_card(graphics, card_x, 86 - sy, card_w, card1_h, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
             draw_gdip_text(graphics, font_bold, "Phím tắt chuyển đổi", left_text, 102 - sy, ARGB_TEXT_PRIMARY, false);
             draw_gdip_text(graphics, font_desc, "Chuyển nhanh giữa Tiếng Việt và Tiếng Anh", left_text, 126 - sy, ARGB_TEXT_MUTED, false);
 
             let sw_enabled_progress = SWITCH_KEY_ENABLED_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
             draw_animated_switch(graphics, right_ctrl - 50, 104 - sy, sw_enabled_progress);
 
-            let switch_progress = SWITCH_KEY_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
-            let sw_total_w = card_w - 40;
-            let sw_tab_w = (sw_total_w - 8) / 2;
-            draw_animated_tabs(
-                graphics,
-                left_text,
-                152 - sy,
-                &["Ctrl + Shift", "Alt + Z"],
-                sw_tab_w,
-                36,
-                switch_progress,
-                font_tab,
-                sw_key_enabled,
-            );
+            if ease_sw > 0.02 {
+                let switch_progress = SWITCH_KEY_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
+                let sw_total_w = card_w - 40;
+                let sw_tab_w = (sw_total_w - 8) / 2;
+                let alpha_u8 = (255.0 * ease_sw).clamp(0.0, 255.0) as u8;
+                draw_animated_tabs(
+                    graphics,
+                    left_text,
+                    152 - sy,
+                    &["Ctrl + Shift", "Alt + Z"],
+                    sw_tab_w,
+                    36,
+                    switch_progress,
+                    font_tab,
+                    true,
+                    alpha_u8,
+                );
+            }
 
-            // Card 2: Khởi động cùng Windows (cao 76px, y = 220..296)
-            gdiplus_draw_rounded_card(graphics, card_x, 220 - sy, card_w, 76, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
-            draw_gdip_text(graphics, font_bold, "Khởi động cùng Windows", left_text, 234 - sy, ARGB_TEXT_PRIMARY, false);
-            draw_gdip_text(graphics, font_desc, "Tự động chạy HoyuKey khi đăng nhập máy tính", left_text, 258 - sy, ARGB_TEXT_MUTED, false);
+            // Card 2: Khởi động cùng Windows (cao 76px)
+            let card2_y = 86 + card1_h + 12 - sy;
+            gdiplus_draw_rounded_card(graphics, card_x, card2_y, card_w, 76, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
+            draw_gdip_text(graphics, font_bold, "Khởi động cùng Windows", left_text, card2_y + 14, ARGB_TEXT_PRIMARY, false);
+            draw_gdip_text(graphics, font_desc, "Tự động chạy HoyuKey khi đăng nhập máy tính", left_text, card2_y + 38, ARGB_TEXT_MUTED, false);
             let autostart_progress = START_WITH_WINDOWS_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
-            draw_animated_switch(graphics, right_ctrl - 50, 241 - sy, autostart_progress);
+            draw_animated_switch(graphics, right_ctrl - 50, card2_y + 21, autostart_progress);
 
             // Mục nhỏ "THÔNG BÁO"
-            draw_gdip_text(graphics, font_section, "THÔNG BÁO", card_x + 4, 310 - sy, ARGB_STATUS_MUTED, false);
+            let notif_header_y = card2_y + 76 + 14;
+            draw_gdip_text(graphics, font_section, "THÔNG BÁO", card_x + 4, notif_header_y, ARGB_STATUS_MUTED, false);
 
-            // Card Thông báo: 2 tùy chọn (cao 144px, y = 332..476)
-            gdiplus_draw_rounded_card(graphics, card_x, 332 - sy, card_w, 144, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
+            // Card Thông báo: 2 tùy chọn (cao 144px)
+            let notif_card_y = notif_header_y + 22;
+            gdiplus_draw_rounded_card(graphics, card_x, notif_card_y, card_w, 144, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
 
             // 1. Thông báo khởi động
-            draw_gdip_text(graphics, font_bold, "Thông báo khi khởi động", left_text, 346 - sy, ARGB_TEXT_PRIMARY, false);
-            draw_gdip_text(graphics, font_desc, "HoyuKey đã kích hoạt và sẵn sàng!", left_text, 370 - sy, ARGB_TEXT_MUTED, false);
+            draw_gdip_text(graphics, font_bold, "Thông báo khi khởi động", left_text, notif_card_y + 14, ARGB_TEXT_PRIMARY, false);
+            draw_gdip_text(graphics, font_desc, "HoyuKey đã kích hoạt và sẵn sàng!", left_text, notif_card_y + 38, ARGB_TEXT_MUTED, false);
             let notify_startup_p = NOTIFY_STARTUP_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
-            draw_animated_switch(graphics, right_ctrl - 50, 353 - sy, notify_startup_p);
+            draw_animated_switch(graphics, right_ctrl - 50, notif_card_y + 21, notify_startup_p);
 
-            gdiplus_draw_line(graphics, left_text, 404 - sy, right_ctrl, 404 - sy, ARGB_DIVIDER, 1.0);
+            gdiplus_draw_line(graphics, left_text, notif_card_y + 72, right_ctrl, notif_card_y + 72, ARGB_DIVIDER, 1.0);
 
             // 2. Thông báo chuyển ngôn ngữ
-            draw_gdip_text(graphics, font_bold, "Thông báo chuyển ngôn ngữ", left_text, 418 - sy, ARGB_TEXT_PRIMARY, false);
-            draw_gdip_text(graphics, font_desc, "Hiện thông báo mỗi khi bật hoặc tắt Tiếng Việt", left_text, 442 - sy, ARGB_TEXT_MUTED, false);
+            draw_gdip_text(graphics, font_bold, "Thông báo chuyển ngôn ngữ", left_text, notif_card_y + 86, ARGB_TEXT_PRIMARY, false);
+            draw_gdip_text(graphics, font_desc, "Hiện thông báo mỗi khi bật hoặc tắt Tiếng Việt", left_text, notif_card_y + 110, ARGB_TEXT_MUTED, false);
             let notify_toggle_p = NOTIFY_TOGGLE_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
-            draw_animated_switch(graphics, right_ctrl - 50, 425 - sy, notify_toggle_p);
+            draw_animated_switch(graphics, right_ctrl - 50, notif_card_y + 93, notify_toggle_p);
 
-            // Card 3: Điều chỉnh RAM chạy nền (Memory Limiter - y = 488..)
+            // Card 3: Điều chỉnh RAM chạy nền (Memory Limiter)
             let anim_p = RAM_LIMIT_ANIM.load(Ordering::SeqCst) as f32 / 1000.0;
             let anim_ease = 1.0 - (1.0 - anim_p).powi(3);
             let card3_h = (70.0 + 82.0 * anim_ease).round() as i32;
-            let card3_y = 488 - sy;
+            let card3_y = notif_card_y + 144 + 12;
             gdiplus_draw_rounded_card(graphics, card_x, card3_y, card_w, card3_h, 10, ARGB_CARD_BG, ARGB_CARD_BORDER, 1.0);
 
             draw_gdip_text(graphics, font_bold, "Điều chỉnh RAM chạy nền", left_text, card3_y + 14, ARGB_TEXT_PRIMARY, false);
@@ -3546,13 +3582,23 @@ unsafe fn draw_animated_tabs(
     progress: f32,
     font: *mut GpFont,
     enabled: bool,
+    alpha_u8: u8,
 ) {
+    if alpha_u8 == 0 {
+        return;
+    }
     let total_w = tab_w * 2 + 8;
     let total_h = tab_h + 8;
 
+    let apply_alpha = |c: u32| -> u32 {
+        let orig_a = (c >> 24) & 0xFF;
+        let final_a = (orig_a * alpha_u8 as u32) / 255;
+        (final_a << 24) | (c & 0x00FFFFFF)
+    };
+
     let track_bg = if enabled { ARGB_PILL_TRACK } else { 0xFF18181C };
     let border_color = if enabled { ARGB_CARD_BORDER } else { 0xFF24242A };
-    gdiplus_draw_rounded_card(graphics, x, y, total_w, total_h, 8, track_bg, border_color, 1.0);
+    gdiplus_draw_rounded_card(graphics, x, y, total_w, total_h, 8, apply_alpha(track_bg), apply_alpha(border_color), 1.0);
 
     let pill_min_x = (x + 4) as f32;
     let pill_max_x = (x + 4 + tab_w) as f32;
@@ -3561,7 +3607,7 @@ unsafe fn draw_animated_tabs(
 
     let pill_bg = if enabled { ARGB_WHITE } else { 0xFF2A2A32 };
     let pill_border = if enabled { ARGB_WHITE } else { 0xFF2A2A32 };
-    gdiplus_draw_rounded_card(graphics, pill_curr_x.round() as i32, pill_y, tab_w, tab_h, 6, pill_bg, pill_border, 1.0);
+    gdiplus_draw_rounded_card(graphics, pill_curr_x.round() as i32, pill_y, tab_w, tab_h, 6, apply_alpha(pill_bg), apply_alpha(pill_border), 1.0);
 
     let (t1_color, t2_color) = if enabled {
         (
@@ -3574,8 +3620,8 @@ unsafe fn draw_animated_tabs(
             if progress >= 0.5 { ARGB_STATUS_MUTED } else { 0xFF454550 },
         )
     };
-    draw_gdip_text_centered(graphics, font, tabs[0], x + 4, y + 4, tab_w, tab_h, t1_color);
-    draw_gdip_text_centered(graphics, font, tabs[1], x + 4 + tab_w, y + 4, tab_w, tab_h, t2_color);
+    draw_gdip_text_centered(graphics, font, tabs[0], x + 4, y + 4, tab_w, tab_h, apply_alpha(t1_color));
+    draw_gdip_text_centered(graphics, font, tabs[1], x + 4 + tab_w, y + 4, tab_w, tab_h, apply_alpha(t2_color));
 }
 
 unsafe fn create_rounded_path(x: f32, y: f32, w: f32, h: f32, r: f32) -> *mut GpPath {
