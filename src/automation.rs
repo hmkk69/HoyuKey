@@ -260,17 +260,7 @@ pub fn extract_context_from_pre_post(pre_str: &str, post_str: &str) -> Option<Ca
     })
 }
 
-/// Kiểm tra xem biến đổi có xảy ra hoàn toàn ở phía sau con trỏ (vị trí con trỏ phải đứng sau ký tự được sửa).
-/// Nghĩa là phần đuôi post_word phía sau con trỏ không hề bị thay đổi.
-pub fn is_modification_behind_caret(post_word: &str, new_word: &str) -> bool {
-    let post_len = post_word.chars().count();
-    let new_chars: Vec<char> = new_word.chars().collect();
-    let post_chars: Vec<char> = post_word.chars().collect();
-    if new_chars.len() < post_len {
-        return false;
-    }
-    new_chars[new_chars.len() - post_len..] == post_chars[..]
-}
+pub use hoyukey_core::is_modification_behind_caret;
 
 /// Trích xuất từ và vị trí con trỏ từ một chuỗi văn bản và chỉ số vị trí con trỏ (character offset)
 pub fn extract_word_from_text_at_caret(text: &str, caret_char_offset: usize) -> Option<CaretWordContext> {

@@ -52,7 +52,7 @@ jobs:
         run: |
           rc.exe /fo app.res app.rc
           $env:RUSTFLAGS = "-C link-arg=app.res"
-          cargo build --release
+          cargo build --release --bin hoyukey
 
       - name: Prepare Binary
         shell: powershell

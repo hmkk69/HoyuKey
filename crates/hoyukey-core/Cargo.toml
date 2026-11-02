@@ -1,0 +1,8 @@
+[package]
+name = "hoyukey-core"
+version = "1.0.0"
+edition = "2021"
+authors = ["Hoyuuna"]
+description = "Core Vietnamese typing engine for HoyuKey (Cross-platform pure Rust)"
+
+[dependencies]

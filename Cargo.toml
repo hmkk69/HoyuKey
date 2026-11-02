@@ -1,3 +1,8 @@
+[workspace]
+members = [
+    "crates/hoyukey-core",
+]
+
 [package]
 name = "hoyukey"
 version = "1.0.66"
@@ -6,6 +11,7 @@ authors = ["Hoyuuna"]
 description = "HoyuKey - Bộ gõ Tiếng Việt siêu nhẹ và hiện đại cho Windows viết bằng Rust"
 
 [dependencies]
+hoyukey-core = { path = "crates/hoyukey-core" }
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",

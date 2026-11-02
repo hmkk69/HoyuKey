@@ -1,8 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InputMethod {
-    Telex,
-    Vni,
-}
+pub use hoyukey_core::config::{InputMethod, TypingConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchKey {
@@ -12,12 +8,8 @@ pub enum SwitchKey {
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Bật / Tắt gõ tiếng Việt (V / E)
-    pub enabled: bool,
-    /// Kiểu gõ (Telex / VNI)
-    pub input_method: InputMethod,
-    /// Bỏ dấu kiểu mới (òa, úy thay vì oà, uý)
-    pub modern_tone: bool,
+    /// Cấu hình engine gõ tiếng Việt thuần túy (dùng chung cho mọi OS)
+    pub typing: TypingConfig,
     /// Phím tắt chuyển đổi chế độ V / E
     pub switch_key: SwitchKey,
     /// Bật / Tắt phím tắt chuyển đổi (mặc định true)
@@ -26,26 +18,10 @@ pub struct Config {
     pub pause_shortcut: bool,
     /// Danh sách tiến trình ứng dụng tạm dừng phím tắt chuyển đổi (mặc định "")
     pub pause_shortcut_apps: String,
-    /// Tự động khôi phục từ khi gõ từ không hợp lệ
-    pub auto_restore: bool,
-    /// Bỏ dấu & thêm mũ Telex tự do bất kỳ lúc nào trong từ (hienej -> hiện, dặtd -> đặt)
-    pub free_marking: bool,
-    /// Nhận diện từ tiếng Anh thông minh (không can thiệp khi gõ các từ như fix, file, wifi, animation)
-    pub smart_english: bool,
-    /// Tự động điều chỉnh dấu thanh khi sửa nguyên âm trong từ (khí -> khái)
-    pub modify_tone_in_word: bool,
-    /// Telex giản lược (chỉ áp dụng khi kiểu gõ là Telex)
-    pub simple_telex: bool,
     /// Sửa dấu tự do tại con trỏ (UI Automation) khi click chuột hoặc bấm phím điều hướng
     pub dynamic_caret: bool,
     /// Khởi động cùng Windows khi đăng nhập máy tính
     pub start_with_windows: bool,
-    /// Tự động viết hoa chữ cái đầu dòng
-    pub auto_caps_line: bool,
-    /// Tự động viết hoa chữ cái sau dấu chấm
-    pub auto_caps_sentence: bool,
-    /// Tự động thêm dấu chấm câu khi xuống dòng hoặc gửi
-    pub auto_period_enter: bool,
     /// Tương thích trình duyệt (Chrome, Edge, Brave, Cốc Cốc...)
     pub browser_compatibility: bool,
     /// Danh sách tiến trình ứng dụng cần tương thích trình duyệt
@@ -66,26 +42,29 @@ pub struct Config {
     pub auto_check_updates: bool,
 }
 
+impl std::ops::Deref for Config {
+    type Target = TypingConfig;
+    fn deref(&self) -> &Self::Target {
+        &self.typing
+    }
+}
+
+impl std::ops::DerefMut for Config {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.typing
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
-            enabled: true,
-            input_method: InputMethod::Telex,
-            modern_tone: true,
+            typing: TypingConfig::default(),
             switch_key: SwitchKey::CtrlShift,
             switch_key_enabled: true,
             pause_shortcut: false,
             pause_shortcut_apps: String::new(),
-            auto_restore: true,
-            free_marking: true,
-            smart_english: true,
-            modify_tone_in_word: true,
-            simple_telex: false,
             dynamic_caret: false,
             start_with_windows: false,
-            auto_caps_line: false,
-            auto_caps_sentence: false,
-            auto_period_enter: false,
             browser_compatibility: true,
             browser_apps: "chrome.exe, msedge.exe, brave.exe, coccoc.exe, opera.exe, opera_gx.exe, firefox.exe, vivaldi.exe, arc.exe, zen.exe".to_string(),
             remember_app_state: false,

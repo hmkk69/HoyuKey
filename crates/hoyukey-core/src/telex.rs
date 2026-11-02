@@ -1,4 +1,4 @@
-use super::vietnamese::{decompose_vietnamese_char, get_vietnamese_vowel, Tone, VowelMod};
+use crate::vietnamese::{decompose_vietnamese_char, get_vietnamese_vowel, Tone, VowelMod};
 
 pub fn transform_telex(
     word: &str,
@@ -537,7 +537,7 @@ fn handle_vowel_modifier(
     // - Không áp dụng khi bật simple_telex
     if !simple_telex && key == 'w' && extract_vowel_indices(&chars).is_empty() {
         let word_lower = word.to_lowercase();
-        if super::is_valid_initial_consonant(&word_lower) {
+        if crate::engine::is_valid_initial_consonant(&word_lower) {
             let mut new_chars = chars.clone();
             new_chars.push(if is_upper { 'Ư' } else { 'ư' });
             return Some(new_chars.into_iter().collect());

@@ -1,5 +1,5 @@
-use super::telex::extract_vowel_indices;
-use super::vietnamese::{decompose_vietnamese_char, get_vietnamese_vowel, Tone, VowelMod};
+use crate::telex::extract_vowel_indices;
+use crate::vietnamese::{decompose_vietnamese_char, get_vietnamese_vowel, Tone, VowelMod};
 
 pub fn transform_vni(
     word: &str,
@@ -17,7 +17,7 @@ pub fn transform_vni(
         return None;
     }
 
-    if smart_english && super::telex::is_foreign_word(word) {
+    if smart_english && crate::telex::is_foreign_word(word) {
         return None;
     }
 
@@ -429,7 +429,7 @@ fn handle_vni_tone(word: &str, key: char, modern_tone: bool) -> Option<String> {
         return Some(new_chars.into_iter().collect());
     }
 
-    let target_idx = super::telex::select_tone_vowel_index(&chars, &vowel_indices, modern_tone);
+    let target_idx = crate::telex::select_tone_vowel_index(&chars, &vowel_indices, modern_tone);
 
     let mut new_chars = chars.clone();
     for &idx in &vowel_indices {
