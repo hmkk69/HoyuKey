@@ -102,79 +102,31 @@ impl Engine {
     /// Xử lý phím Backspace:
     /// Đồng bộ xóa ký tự trong bộ đệm và cho phím Backspace vật lý đi qua tự nhiên.
     /// Nếu vừa gõ xong từ rồi gõ space (ví dụ "dụ "), ấn Backspace xóa space sẽ khôi phục từ để có thể gõ tiếp.
-    pub fn handle_backspace(&mut self, simple_telex: bool) -> Option<KeyAction> {
-        if simple_telex {
-            // Telex giản lược: Không tự động can thiệp hay khôi phục tổ hợp phím trước đó
-            if !self.current_word.is_empty() {
-                self.current_word.pop();
-                self.raw_keys.pop();
-                if self.current_word.is_empty() {
-                    self.raw_keys.clear();
-                    self.has_transformed = false;
-                    self.caret_offset = None;
-                } else {
-                    self.caret_offset = Some(self.current_word.chars().count());
+    pub fn handle_backspace(&mut self, _simple_telex: bool) {
+        if !self.current_word.is_empty() {
+            if let Some(offset) = self.caret_offset {
+                let len = self.current_word.chars().count();
+                if offset < len {
+                    if offset > 0 {
+                        let mut chars: Vec<char> = self.current_word.chars().collect();
+                        chars.remove(offset - 1);
+                        self.current_word = chars.into_iter().collect();
+                        self.caret_offset = Some(offset - 1);
+                    }
+                    return;
                 }
             }
-            return None;
-        }
 
-        if self.current_word.is_empty() {
-            if let Some((word, raw, transformed)) = self.last_word_before_space.take() {
-                let len = word.chars().count();
-                self.current_word = word;
-                self.raw_keys = raw;
-                self.has_transformed = transformed;
-                self.caret_offset = Some(len);
-            }
-            return None;
-        }
-
-        if let Some(offset) = self.caret_offset {
-            let len = self.current_word.chars().count();
-            if offset < len {
-                if offset > 0 {
-                    let mut chars: Vec<char> = self.current_word.chars().collect();
-                    chars.remove(offset - 1);
-                    self.current_word = chars.into_iter().collect();
-                    self.caret_offset = Some(offset - 1);
-                }
-                return None;
+            self.current_word.pop();
+            self.raw_keys.pop();
+            if self.current_word.is_empty() {
+                self.raw_keys.clear();
+                self.has_transformed = false;
+                self.caret_offset = None;
+            } else {
+                self.caret_offset = Some(self.current_word.chars().count());
             }
         }
-
-        // Hỗ trợ sửa dấu khi bấm Backspace:
-        // Nếu từ có dấu thanh (ví dụ: "quảng", "toán", "chào"), bấm Backspace sẽ gỡ bỏ dấu thanh trước
-        // ("quảng" -> "quang", "toán" -> "toan") để người dùng có thể gõ ngay dấu mới ("quãng", "toàn")
-        // mà không cần phải xóa hết từ đi gõ lại từ đầu.
-        if !simple_telex && !self.current_word.is_empty() {
-            let tone = find_existing_tone(&self.current_word);
-            if tone != Tone::None {
-                let unaccented = remove_tone_from_word(&self.current_word);
-                if unaccented != self.current_word {
-                    let bs = self.current_word.chars().count();
-                    self.current_word = unaccented.clone();
-                    self.raw_keys = unaccented.clone();
-                    self.caret_offset = Some(self.current_word.chars().count());
-                    self.has_transformed = true;
-                    return Some(KeyAction::Transform {
-                        backspaces: bs,
-                        text: unaccented,
-                    });
-                }
-            }
-        }
-
-        self.current_word.pop();
-        self.raw_keys.pop();
-        if self.current_word.is_empty() {
-            self.raw_keys.clear();
-            self.has_transformed = false;
-            self.caret_offset = None;
-        } else {
-            self.caret_offset = Some(self.current_word.chars().count());
-        }
-        None
     }
 
     /// Khôi phục từ vừa gõ khi bấm mũi tên trái (cho phép sửa dấu / từ mà không cần Backspace)
@@ -1771,7 +1723,7 @@ mod tests {
     }
 
     #[test]
-    fn test_backspace_tone_editing() {
+    fn test_key_tone_editing_and_backspace_natural() {
         let mut engine = Engine::new();
         let config = Config::default();
 
@@ -1781,18 +1733,7 @@ mod tests {
         }
         assert_eq!(engine.current_word, "toán");
 
-        // Bấm Backspace lần 1: gỡ bỏ dấu sắc -> "toan"
-        let bs1 = engine.handle_backspace(config.simple_telex);
-        assert_eq!(
-            bs1,
-            Some(KeyAction::Transform {
-                backspaces: 4,
-                text: "toan".to_string()
-            })
-        );
-        assert_eq!(engine.current_word, "toan");
-
-        // Gõ ngay phím 'f' -> đổi thành "toàn"
+        // Đổi dấu bằng phím: gõ 'f' -> đổi thành "toàn"
         let act_f = engine.process_char('f', &config);
         assert_eq!(
             act_f,
@@ -1803,20 +1744,19 @@ mod tests {
         );
         assert_eq!(engine.current_word, "toàn");
 
-        // Bấm Backspace lần nữa: gỡ bỏ dấu huyền -> "toan"
-        let bs2 = engine.handle_backspace(config.simple_telex);
+        // Xóa dấu bằng phím: gõ 'z' -> "toan"
+        let act_z = engine.process_char('z', &config);
         assert_eq!(
-            bs2,
-            Some(KeyAction::Transform {
+            act_z,
+            KeyAction::Transform {
                 backspaces: 4,
                 text: "toan".to_string()
-            })
+            }
         );
         assert_eq!(engine.current_word, "toan");
 
-        // Bấm Backspace lần nữa khi từ không có dấu thanh: xóa ký tự cuối ('n' -> "toa")
-        let bs3 = engine.handle_backspace(config.simple_telex);
-        assert_eq!(bs3, None);
+        // Bấm Backspace xóa ký tự tự nhiên trong bộ đệm: 'n' -> "toa"
+        engine.handle_backspace(config.simple_telex);
         assert_eq!(engine.current_word, "toa");
 
         // 2. Gõ "quangr" -> "quảng"
@@ -1826,18 +1766,7 @@ mod tests {
         }
         assert_eq!(engine.current_word, "quảng");
 
-        // Bấm Backspace: gỡ dấu hỏi -> "quang"
-        let bs_q = engine.handle_backspace(config.simple_telex);
-        assert_eq!(
-            bs_q,
-            Some(KeyAction::Transform {
-                backspaces: 5,
-                text: "quang".to_string()
-            })
-        );
-        assert_eq!(engine.current_word, "quang");
-
-        // Gõ 'x' -> "quãng"
+        // Đổi dấu trực tiếp bằng phím 'x' -> "quãng"
         let act_x = engine.process_char('x', &config);
         assert_eq!(
             act_x,
@@ -1847,6 +1776,17 @@ mod tests {
             }
         );
         assert_eq!(engine.current_word, "quãng");
+
+        // Xóa dấu bằng phím 'z' -> "quang"
+        let act_qz = engine.process_char('z', &config);
+        assert_eq!(
+            act_qz,
+            KeyAction::Transform {
+                backspaces: 5,
+                text: "quang".to_string()
+            }
+        );
+        assert_eq!(engine.current_word, "quang");
     }
 
     #[test]

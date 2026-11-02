@@ -474,27 +474,16 @@ unsafe extern "system" fn low_level_keyboard_proc(
     match kbd.vkCode as u16 {
         VK_BACK => {
             BLOCKED_VK[vk_idx].store(false, Ordering::SeqCst);
-            let (bs_action, has_space_before, browser_compat, browser_apps) = {
+            {
                 let mut state = GLOBAL_STATE.lock().unwrap();
                 let simple_telex = state.config.simple_telex;
-                let browser_compat = state.config.browser_compatibility;
-                let browser_apps = state.config.browser_apps.clone();
-                let bs_action = state.engine.handle_backspace(simple_telex);
-                let has_space_before = state.engine.has_space_before;
+                state.engine.handle_backspace(simple_telex);
                 if state.engine.current_word.is_empty() {
                     state.engine.caret_needs_check = true;
                 }
-                (bs_action, has_space_before, browser_compat, browser_apps)
-            };
-
-            if let Some(KeyAction::Transform { backspaces, text }) = bs_action {
-                BLOCKED_VK[vk_idx].store(true, Ordering::SeqCst);
-                send_transform_batch(backspaces, &text, has_space_before, browser_compat, &browser_apps);
-                return 1;
-            } else {
-                crate::automation::request_caret_refresh();
-                return CallNextHookEx(null_mut(), code, wparam, lparam);
             }
+            crate::automation::request_caret_refresh();
+            return CallNextHookEx(null_mut(), code, wparam, lparam);
         }
         VK_RETURN => {
             BLOCKED_VK[vk_idx].store(false, Ordering::SeqCst);
@@ -1045,7 +1034,7 @@ unsafe fn is_focused_in_web_content() -> bool {
 unsafe fn send_transform_batch(
     backspaces: usize,
     text: &str,
-    _has_space_before: bool,
+    has_space_before: bool,
     browser_compatibility: bool,
     browser_apps: &str,
 ) {
@@ -1058,7 +1047,7 @@ unsafe fn send_transform_batch(
     // TrÃ¬nh duyá»‡t tá»± Ä‘á»™ng bÃ´i Ä‘en (inline selection) gá»£i Ã½ URL/tÃ¬m kiáº¿m Ä‘áº§u tiÃªn.
     // Náº¿u chÆ°a cÃ³ dáº¥u cÃ¡ch (!has_space_before) vÃ  khÃ´ng pháº£i trong ná»™i dung web (!is_focused_in_web_content):
     // PhÃ­m Backspace Ä‘áº§u tiÃªn sáº½ xÃ³a vÃ¹ng chá»n gá»£i Ã½ cá»§a trÃ¬nh duyá»‡t, do Ä‘Ã³ cáº§n thÃªm 1 Backspace Ä‘á»ƒ xÃ³a kÃ½ tá»± gá»‘c.
-    let need_omnibox_fix = is_browser && !is_focused_in_web_content();
+    let need_omnibox_fix = is_browser && !has_space_before && !is_focused_in_web_content();
     let total_backspaces = if need_omnibox_fix { backspaces + 1 } else { backspaces };
 
     send_replace_batch(0, total_backspaces, text);
