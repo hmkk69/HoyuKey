@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+# Luôn chuyển thư mục làm việc về thư mục chứa script (hỗ trợ cả nhấp đúp chuột và chạy từ terminal)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 echo "============================================="
 echo "   Cài đặt HoyuKey cho Fcitx5 (Linux)        "
 echo "============================================="
@@ -14,6 +18,16 @@ fi
 echo "-> Thư mục Fcitx5 lib: $LIBDIR"
 sudo mkdir -p "$LIBDIR"
 sudo cp hoyukey.so "$LIBDIR/"
+
+# Tạo liên kết tượng trưng dự phòng nếu hệ thống hỗ trợ cả 2 đường dẫn
+if [ "$LIBDIR" != "/usr/lib/fcitx5" ]; then
+    sudo mkdir -p /usr/lib/fcitx5
+    sudo ln -sf "$LIBDIR/hoyukey.so" /usr/lib/fcitx5/hoyukey.so || true
+fi
+if [ "$LIBDIR" != "/usr/lib/x86_64-linux-gnu/fcitx5" ] && [ -d "/usr/lib/x86_64-linux-gnu" ]; then
+    sudo mkdir -p /usr/lib/x86_64-linux-gnu/fcitx5
+    sudo ln -sf "$LIBDIR/hoyukey.so" /usr/lib/x86_64-linux-gnu/fcitx5/hoyukey.so || true
+fi
 
 echo "-> Cài đặt file cấu hình..."
 sudo mkdir -p /usr/share/fcitx5/addon /usr/share/fcitx5/inputmethod
