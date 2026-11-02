@@ -6,11 +6,11 @@ Bộ gõ tiếng Việt cho Windows được viết bằng Rust.
 
 ## Tính năng
 
-- **Kiểu gõ**: Hỗ trợ 2 kiểu gõ thông dụng là **Telex** và **VNI**.
+- **Kiểu gõ**: Hỗ trợ 2 kiểu gõ **Telex** (bao gồm **Telex giản lược**) và **VNI**.
 - **Bỏ dấu**:
-  - Hỗ trợ cả 2 cách đặt dấu: chuẩn mới (`hòa`, `thủy`) và chuẩn cũ (`hoà`, `thuỷ`).
-  - Cho phép đặt dấu tự do ở cuối từ (ví dụ: `hoangf` -> `hoàng`).
-  - Gõ lặp phím dấu để quay về ký tự gốc (ví dụ: gõ `as` thành `á`, nhấn tiếp `s` thành `as`).
+  - Hỗ trợ 2 cách đặt dấu: chuẩn mới và chuẩn cũ.
+  - Cho phép đặt dấu tự do ở cuối từ.
+  - Gõ lặp phím dấu để quay về ký tự gốc.
 - **Khôi phục từ tiếng Anh**: Tự động nhận biết các từ tiếng Anh hoặc từ viết tắt để trả về đúng chữ gốc mà không bị nuốt ký tự hay dính dấu.
 - **Phím tắt chuyển chế độ**: Chuyển nhanh giữa tiếng Việt và tiếng Anh bằng `Ctrl + Shift` hoặc `Alt + Z`.
 - **Khay hệ thống**:
