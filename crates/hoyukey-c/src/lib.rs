@@ -276,13 +276,13 @@ mod tests {
         assert_eq!(act4.action_type, HoyuKeyActionType::PassThrough);
         hoyukey_action_free(&mut act4);
 
-        // Gõ 'j' -> Transform { backspaces: 3, text: "ệt" }
+        // Gõ 'j' -> Transform { backspaces: 4, text: "việt" }
         let mut act5 = hoyukey_engine_process_key(engine, 'j' as u32, false);
         assert_eq!(act5.action_type, HoyuKeyActionType::Transform);
-        assert_eq!(act5.backspaces, 3);
+        assert_eq!(act5.backspaces, 4);
         assert!(!act5.text.is_null());
         let text_str = unsafe { CStr::from_ptr(act5.text).to_str().unwrap() };
-        assert_eq!(text_str, "ệt");
+        assert_eq!(text_str, "việt");
         hoyukey_action_free(&mut act5);
 
         hoyukey_engine_free(engine);
