@@ -533,6 +533,11 @@ unsafe extern "system" fn low_level_keyboard_proc(
         VK_ESCAPE | VK_TAB | VK_HOME
         | VK_END | VK_PRIOR | VK_NEXT => {
             reset_engine();
+            if kbd.vkCode as u16 == VK_HOME {
+                if let Ok(mut state) = GLOBAL_STATE.lock() {
+                    state.engine.at_start_of_line = true;
+                }
+            }
             if matches!(kbd.vkCode as u16, VK_HOME | VK_END | VK_PRIOR | VK_NEXT) {
                 if let Ok(mut state) = GLOBAL_STATE.lock() {
                     state.engine.caret_needs_check = true;
@@ -1048,7 +1053,7 @@ unsafe fn send_transform_batch(
     // Náº¿u chÆ°a cÃ³ dáº¥u cÃ¡ch (!has_space_before) vÃ  khÃ´ng pháº£i trong ná»™i dung web (!is_focused_in_web_content):
     // PhÃ­m Backspace Ä‘áº§u tiÃªn sáº½ xÃ³a vÃ¹ng chá»n gá»£i Ã½ cá»§a trÃ¬nh duyá»‡t, do Ä‘Ã³ cáº§n thÃªm 1 Backspace Ä‘á»ƒ xÃ³a kÃ½ tá»± gá»‘c.
     let need_omnibox_fix = is_browser && !has_space_before && !is_focused_in_web_content();
-    let total_backspaces = if need_omnibox_fix { backspaces + 1 } else { backspaces };
+    let total_backspaces = if need_omnibox_fix && backspaces > 0 { backspaces + 1 } else { backspaces };
 
     send_replace_batch(0, total_backspaces, text);
 }

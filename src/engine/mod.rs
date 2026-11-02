@@ -35,6 +35,8 @@ pub struct Engine {
     pub at_start_of_line: bool,
     pub after_sentence_end: bool,
     pub saw_sentence_end_punct: bool,
+    pub was_at_line_start: bool,
+    pub was_at_sentence_start: bool,
     pub has_typed_in_line: bool,
     pub last_char_typed: Option<char>,
     pub has_space_before: bool,
@@ -52,6 +54,8 @@ impl Engine {
             at_start_of_line: true,
             after_sentence_end: false,
             saw_sentence_end_punct: false,
+            was_at_line_start: false,
+            was_at_sentence_start: false,
             has_typed_in_line: false,
             last_char_typed: None,
             has_space_before: false,
@@ -70,10 +74,13 @@ impl Engine {
     }
 
     pub fn on_enter(&mut self) {
+        let was_after_punct = self.saw_sentence_end_punct;
         self.reset();
         self.at_start_of_line = true;
-        self.after_sentence_end = false;
+        self.after_sentence_end = was_after_punct;
         self.saw_sentence_end_punct = false;
+        self.was_at_line_start = false;
+        self.was_at_sentence_start = false;
         self.has_typed_in_line = false;
         self.last_char_typed = Some('\n');
         self.has_space_before = false;
@@ -84,6 +91,8 @@ impl Engine {
         self.at_start_of_line = true;
         self.after_sentence_end = false;
         self.saw_sentence_end_punct = false;
+        self.was_at_line_start = false;
+        self.was_at_sentence_start = false;
         self.has_typed_in_line = false;
         self.last_char_typed = None;
         self.has_space_before = false;
@@ -123,6 +132,14 @@ impl Engine {
                 self.raw_keys.clear();
                 self.has_transformed = false;
                 self.caret_offset = None;
+                // Nếu người dùng vừa xóa ký tự đầu tiên tại đầu dòng hoặc đầu câu:
+                // Khôi phục lại cờ viết hoa tự động để ký tự gõ tiếp theo vẫn được viết hoa!
+                if self.was_at_line_start {
+                    self.at_start_of_line = true;
+                }
+                if self.was_at_sentence_start {
+                    self.after_sentence_end = true;
+                }
             } else {
                 self.caret_offset = Some(self.current_word.chars().count());
             }
@@ -192,7 +209,13 @@ impl Engine {
         self.reset();
         self.last_word_before_space = None;
         self.last_char_typed = None;
-        self.at_start_of_line = false;
+        if !self.has_typed_in_line {
+            self.at_start_of_line = true;
+        } else {
+            self.at_start_of_line = false;
+        }
+        self.was_at_line_start = false;
+        self.was_at_sentence_start = false;
         self.caret_needs_check = true;
     }
 
@@ -210,6 +233,8 @@ impl Engine {
             if self.saw_sentence_end_punct {
                 self.after_sentence_end = true;
             }
+            self.was_at_line_start = false;
+            self.was_at_sentence_start = false;
             if !self.current_word.is_empty() {
                 self.last_word_before_space = Some((
                     self.current_word.clone(),
@@ -230,10 +255,14 @@ impl Engine {
             if matches!(c, '.' | '?' | '!') {
                 self.saw_sentence_end_punct = true;
                 self.after_sentence_end = false;
+            } else if self.saw_sentence_end_punct && matches!(c, '"' | '\'' | ')' | ']' | '}' | '”' | '’' | '»') {
+                // Giữ nguyên cờ kết thúc câu nếu sau dấu chấm/hỏi/than là dấu đóng ngoặc hoặc nháy kép
             } else {
                 self.saw_sentence_end_punct = false;
                 self.after_sentence_end = false;
             }
+            self.was_at_line_start = false;
+            self.was_at_sentence_start = false;
             self.reset();
             self.has_space_before = true;
             return KeyAction::PassThrough;
@@ -257,11 +286,15 @@ impl Engine {
 
         let was_lowercase = c.is_ascii_lowercase();
         if should_capitalize {
+            self.was_at_line_start = self.at_start_of_line;
+            self.was_at_sentence_start = self.after_sentence_end;
             self.at_start_of_line = false;
             self.after_sentence_end = false;
             self.saw_sentence_end_punct = false;
             c = c.to_uppercase().next().unwrap_or(c);
         } else if c.is_alphabetic() {
+            self.was_at_line_start = false;
+            self.was_at_sentence_start = false;
             self.at_start_of_line = false;
             self.after_sentence_end = false;
             self.saw_sentence_end_punct = false;
@@ -940,6 +973,81 @@ mod tests {
 
         // 3. Tự động chấm câu khi xuống dòng:
         assert!(engine.should_auto_period_before_enter());
+    }
+
+    #[test]
+    fn test_auto_caps_multiline_and_sentences() {
+        let mut engine = Engine::new();
+        let mut config = Config::default();
+        config.auto_caps_line = true;
+        config.auto_caps_sentence = true;
+
+        // 1. Kiểm tra 5 dòng liên tiếp gõ Enter: tất cả đều phải viết hoa chữ cái đầu tiên
+        for i in 1..=5 {
+            let act = engine.process_char('c', &config);
+            assert_eq!(
+                act,
+                KeyAction::Transform { backspaces: 0, text: "C".to_string() },
+                "Dòng {} không được viết hoa chữ đầu!", i
+            );
+            engine.process_char('a', &config);
+            engine.process_char('u', &config);
+            engine.process_char(' ', &config);
+            engine.on_enter();
+        }
+
+        // 2. Kiểm tra 5 câu liên tiếp trong cùng một đoạn văn (ngắt bằng '. '): tất cả đều phải viết hoa
+        for i in 1..=5 {
+            let act = engine.process_char('d', &config);
+            assert_eq!(
+                act,
+                KeyAction::Transform { backspaces: 0, text: "D".to_string() },
+                "Câu {} không được viết hoa chữ đầu!", i
+            );
+            engine.process_char('a', &config);
+            engine.process_char('y', &config);
+            engine.process_char('.', &config);
+            engine.process_char(' ', &config);
+        }
+
+        // 3. Kiểm tra câu kết thúc bằng dấu đóng ngoặc hoặc nháy kép sau dấu chấm: "alo!" hoặc (alo.)
+        engine.process_char('!', &config);
+        engine.process_char('"', &config);
+        engine.process_char(' ', &config);
+        let act_quote = engine.process_char('t', &config);
+        assert_eq!(
+            act_quote,
+            KeyAction::Transform { backspaces: 0, text: "T".to_string() },
+            "Sau dấu nháy kép không viết hoa!"
+        );
+        engine.reset();
+
+        // 4. Kiểm tra Backspace khi xóa chữ cái đầu dòng: gõ lại chữ khác vẫn phải viết hoa
+        engine.on_enter();
+        let a_init = engine.process_char('t', &config);
+        assert_eq!(a_init, KeyAction::Transform { backspaces: 0, text: "T".to_string() });
+        engine.handle_backspace(false); // Xóa 'T'
+        assert!(engine.current_word.is_empty());
+        let a_retry = engine.process_char('h', &config);
+        assert_eq!(
+            a_retry,
+            KeyAction::Transform { backspaces: 0, text: "H".to_string() },
+            "Sau khi backspace xóa chữ đầu dòng, gõ lại không được viết hoa!"
+        );
+        engine.reset();
+
+        // 5. Kiểm tra chỉ bật auto_caps_sentence (tắt auto_caps_line), gõ Enter sau dấu chấm vẫn viết hoa
+        let mut config_sentence_only = Config::default();
+        config_sentence_only.auto_caps_line = false;
+        config_sentence_only.auto_caps_sentence = true;
+        engine.process_char('.', &config_sentence_only);
+        engine.on_enter();
+        let a_enter_sent = engine.process_char('k', &config_sentence_only);
+        assert_eq!(
+            a_enter_sent,
+            KeyAction::Transform { backspaces: 0, text: "K".to_string() },
+            "Enter sau dấu chấm không viết hoa khi chỉ bật auto_caps_sentence!"
+        );
     }
 
         #[test]
