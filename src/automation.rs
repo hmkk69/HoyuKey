@@ -550,10 +550,13 @@ pub fn get_caret_word_context() -> Option<CaretWordContext> {
 
 static CARET_CACHE: std::sync::Mutex<Option<CaretWordContext>> = std::sync::Mutex::new(None);
 static WORKER_TRIGGER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static WORKER_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static WORKER_CONDVAR: std::sync::Condvar = std::sync::Condvar::new();
 
 /// Yêu cầu background thread quét lại vị trí con trỏ (gọi bất đồng bộ, 0ms latency)
 pub fn request_caret_refresh() {
     WORKER_TRIGGER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    WORKER_CONDVAR.notify_one();
 }
 
 /// Lấy từ ngữ cảnh con trỏ đã được background thread nạp sẵn từ trước (0ms latency)
@@ -583,7 +586,10 @@ pub fn init_background_caret_loader() {
             }
             let mut last_processed = 0;
             loop {
-                std::thread::sleep(std::time::Duration::from_millis(35));
+                {
+                    let lock = WORKER_MUTEX.lock().unwrap();
+                    let _ = WORKER_CONDVAR.wait_timeout(lock, std::time::Duration::from_millis(50));
+                }
                 let current_trigger = WORKER_TRIGGER.load(std::sync::atomic::Ordering::Relaxed);
                 if current_trigger != 0 && current_trigger != last_processed {
                     last_processed = current_trigger;
