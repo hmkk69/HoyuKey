@@ -320,6 +320,11 @@ impl Engine {
             return KeyAction::PassThrough;
         }
 
+        // Khi con trỏ đang đứng ở đầu từ hiện tại, việc gõ ký tự mới
+        // nên bắt đầu một từ mới thay vì chèn vào đầu từ cũ (tránh dính từ).
+        if self.caret_offset == Some(0) {
+            self.reset();
+        }
         // 1. Phím khoảng trắng (Space / Tab): ngắt từ và tạm lưu từ vừa gõ phòng khi cần sửa ngay
         if c.is_whitespace() {
             self.last_char_typed = Some(c);
