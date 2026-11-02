@@ -143,6 +143,28 @@ impl Engine {
             }
         }
 
+        // Hỗ trợ sửa dấu khi bấm Backspace:
+        // Nếu từ có dấu thanh (ví dụ: "quảng", "toán", "chào"), bấm Backspace sẽ gỡ bỏ dấu thanh trước
+        // ("quảng" -> "quang", "toán" -> "toan") để người dùng có thể gõ ngay dấu mới ("quãng", "toàn")
+        // mà không cần phải xóa hết từ đi gõ lại từ đầu.
+        if !simple_telex && !self.current_word.is_empty() {
+            let tone = find_existing_tone(&self.current_word);
+            if tone != Tone::None {
+                let unaccented = remove_tone_from_word(&self.current_word);
+                if unaccented != self.current_word {
+                    let bs = self.current_word.chars().count();
+                    self.current_word = unaccented.clone();
+                    self.raw_keys = unaccented.clone();
+                    self.caret_offset = Some(self.current_word.chars().count());
+                    self.has_transformed = true;
+                    return Some(KeyAction::Transform {
+                        backspaces: bs,
+                        text: unaccented,
+                    });
+                }
+            }
+        }
+
         self.current_word.pop();
         self.raw_keys.pop();
         if self.current_word.is_empty() {
@@ -393,7 +415,7 @@ impl Engine {
                 let vowel_indices = telex::extract_vowel_indices(&chars);
                 let starts_with_d_stroke = self.current_word.starts_with('đ') || self.current_word.starts_with('Đ');
                 if config.auto_restore && !config.simple_telex && !starts_with_d_stroke && !vowel_indices.is_empty() && !is_valid_vietnamese_syllable(&self.current_word) {
-                    let bs = self.current_word.chars().count();
+                    let bs = backspaces;
                     let text = self.raw_keys.clone();
                     self.current_word = text.clone();
                     self.has_transformed = false;
@@ -577,7 +599,7 @@ pub fn is_valid_vietnamese_syllable(word: &str) -> bool {
     true
 }
 
-fn is_valid_initial_consonant(s: &str) -> bool {
+pub fn is_valid_initial_consonant(s: &str) -> bool {
     matches!(
         s,
         "" | "b"
@@ -1725,5 +1747,105 @@ mod tests {
         // chuyeenr -> chuyển in simple telex
         engine.reset();
         assert_eq!(simulate_type(&mut engine, &simple_config, "chuyeenr"), "chuyển");
+    }
+
+    #[test]
+    fn test_btw_typing_no_spurious_transform_or_backspace() {
+        let mut engine = Engine::new();
+        let config = Config::default();
+
+        // Gõ "btw" phải ra đúng "btw", không được biến thành "btư" hay auto-restore
+        let a1 = engine.process_char('b', &config);
+        assert_eq!(a1, KeyAction::PassThrough);
+        assert_eq!(engine.current_word, "b");
+
+        let a2 = engine.process_char('t', &config);
+        assert_eq!(a2, KeyAction::PassThrough);
+        assert_eq!(engine.current_word, "bt");
+
+        let a3 = engine.process_char('w', &config);
+        assert_eq!(a3, KeyAction::PassThrough);
+        assert_eq!(engine.current_word, "btw");
+
+        assert_eq!(simulate_type(&mut engine, &config, "btw"), "btw");
+    }
+
+    #[test]
+    fn test_backspace_tone_editing() {
+        let mut engine = Engine::new();
+        let config = Config::default();
+
+        // 1. Gõ "toans" -> "toán"
+        for ch in "toans".chars() {
+            engine.process_char(ch, &config);
+        }
+        assert_eq!(engine.current_word, "toán");
+
+        // Bấm Backspace lần 1: gỡ bỏ dấu sắc -> "toan"
+        let bs1 = engine.handle_backspace(config.simple_telex);
+        assert_eq!(
+            bs1,
+            Some(KeyAction::Transform {
+                backspaces: 4,
+                text: "toan".to_string()
+            })
+        );
+        assert_eq!(engine.current_word, "toan");
+
+        // Gõ ngay phím 'f' -> đổi thành "toàn"
+        let act_f = engine.process_char('f', &config);
+        assert_eq!(
+            act_f,
+            KeyAction::Transform {
+                backspaces: 4,
+                text: "toàn".to_string()
+            }
+        );
+        assert_eq!(engine.current_word, "toàn");
+
+        // Bấm Backspace lần nữa: gỡ bỏ dấu huyền -> "toan"
+        let bs2 = engine.handle_backspace(config.simple_telex);
+        assert_eq!(
+            bs2,
+            Some(KeyAction::Transform {
+                backspaces: 4,
+                text: "toan".to_string()
+            })
+        );
+        assert_eq!(engine.current_word, "toan");
+
+        // Bấm Backspace lần nữa khi từ không có dấu thanh: xóa ký tự cuối ('n' -> "toa")
+        let bs3 = engine.handle_backspace(config.simple_telex);
+        assert_eq!(bs3, None);
+        assert_eq!(engine.current_word, "toa");
+
+        // 2. Gõ "quangr" -> "quảng"
+        engine.reset();
+        for ch in "quangr".chars() {
+            engine.process_char(ch, &config);
+        }
+        assert_eq!(engine.current_word, "quảng");
+
+        // Bấm Backspace: gỡ dấu hỏi -> "quang"
+        let bs_q = engine.handle_backspace(config.simple_telex);
+        assert_eq!(
+            bs_q,
+            Some(KeyAction::Transform {
+                backspaces: 5,
+                text: "quang".to_string()
+            })
+        );
+        assert_eq!(engine.current_word, "quang");
+
+        // Gõ 'x' -> "quãng"
+        let act_x = engine.process_char('x', &config);
+        assert_eq!(
+            act_x,
+            KeyAction::Transform {
+                backspaces: 5,
+                text: "quãng".to_string()
+            }
+        );
+        assert_eq!(engine.current_word, "quãng");
     }
 }

@@ -3131,11 +3131,17 @@ unsafe fn render_page_elements(
 
                 let display_text = if is_focused {
                     format!("{}|", browser_apps_text)
+                } else if browser_apps_text.is_empty() {
+                    "browser1.exe, browser2.exe, browser3.exe".to_string()
                 } else {
-                    browser_apps_text
+                    browser_apps_text.clone()
                 };
 
-                let text_color = (alpha_u8 << 24) | (ARGB_TEXT_PRIMARY & 0x00FFFFFF);
+                let text_color = if !is_focused && browser_apps_text.is_empty() {
+                    (alpha_u8 << 24) | (ARGB_STATUS_MUTED & 0x00FFFFFF)
+                } else {
+                    (alpha_u8 << 24) | (ARGB_TEXT_PRIMARY & 0x00FFFFFF)
+                };
                 draw_gdip_text_centered(graphics, font_desc, &display_text, left_text + 8, box_y, box_w - 16, box_h, text_color);
             }
 
@@ -3185,7 +3191,7 @@ unsafe fn render_page_elements(
                 let display_text = if is_focused {
                     format!("{}|", pause_apps_text)
                 } else if pause_apps_text.is_empty() {
-                    "Ví dụ: game.exe, lol.exe, valorant.exe".to_string()
+                    "game1.exe, game2.exe, game3.exe".to_string()
                 } else {
                     pause_apps_text.clone()
                 };

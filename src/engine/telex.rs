@@ -519,12 +519,18 @@ fn handle_vowel_modifier(
     }
 }
 
-    // 5. Nếu gõ 'w' độc lập sau phụ âm tiếng Việt (ví dụ: 't' + 'w' -> 'tư', 's' + 'w' -> 'sư')
-    // Chú ý: Không áp dụng nếu ký tự trước là 'w' hoặc ngoại lai, và KHÔNG áp dụng khi bật simple_telex
-    if !simple_telex && key == 'w' && last_c.is_alphabetic() && super::vietnamese::is_consonant(last_c) {
-        let mut new_chars = chars.clone();
-        new_chars.push(if is_upper { 'Ư' } else { 'ư' });
-        return Some(new_chars.into_iter().collect());
+    // 5. Nếu gõ 'w' độc lập sau phụ âm đầu tiếng Việt hợp lệ (ví dụ: 't' + 'w' -> 'tư', 'th' + 'w' -> 'thư')
+    // Chú ý:
+    // - Chỉ áp dụng khi từ CHƯA CÓ NGUYÊN ÂM nào (tránh biến đổi sai như "cat" + 'w' -> "catư")
+    // - Toàn bộ chuỗi phụ âm trước đó PHẢI LÀ phụ âm đầu hợp lệ trong tiếng Việt (tránh "bt" + 'w' -> "btư", "btw", "st", "nt"...)
+    // - Không áp dụng khi bật simple_telex
+    if !simple_telex && key == 'w' && extract_vowel_indices(&chars).is_empty() {
+        let word_lower = word.to_lowercase();
+        if super::is_valid_initial_consonant(&word_lower) {
+            let mut new_chars = chars.clone();
+            new_chars.push(if is_upper { 'Ư' } else { 'ư' });
+            return Some(new_chars.into_iter().collect());
+        }
     }
 
     None

@@ -55,26 +55,26 @@ static KBD_HOOK_HANDLE: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(null_mut())
 static MOUSE_HOOK_HANDLE: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(null_mut());
 static WIN_EVENT_HOOK: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(null_mut());
 
-/// Bảng ghi nhớ trạng thái Tiếng Việt (E / V) theo từng tiến trình ứng dụng
+/// Báº£ng ghi nhá»› tráº¡ng thÃ¡i Tiáº¿ng Viá»‡t (E / V) theo tá»«ng tiáº¿n trÃ¬nh á»©ng dá»¥ng
 static APP_INPUT_STATES: Mutex<Option<HashMap<String, bool>>> = Mutex::new(None);
 
-// Theo dõi các phím bị chặn KeyDown để chặn luôn KeyUp tương ứng, tránh desync phím khi gõ nhanh trên trình duyệt
+// Theo dÃµi cÃ¡c phÃ­m bá»‹ cháº·n KeyDown Ä‘á»ƒ cháº·n luÃ´n KeyUp tÆ°Æ¡ng á»©ng, trÃ¡nh desync phÃ­m khi gÃµ nhanh trÃªn trÃ¬nh duyá»‡t
 const INIT_BOOL: AtomicBool = AtomicBool::new(false);
 static BLOCKED_VK: [AtomicBool; 256] = [INIT_BOOL; 256];
 
-// Theo dõi cửa sổ đang active (foreground), đổi cửa sổ -> tự động reset buffer
+// Theo dÃµi cá»­a sá»• Ä‘ang active (foreground), Ä‘á»•i cá»­a sá»• -> tá»± Ä‘á»™ng reset buffer
 static LAST_FOREGROUND_WINDOW: AtomicIsize = AtomicIsize::new(0);
 
-// Theo dõi trạng thái phím tắt Ctrl + Shift (chuyển chế độ khi nhả phím)
+// Theo dÃµi tráº¡ng thÃ¡i phÃ­m táº¯t Ctrl + Shift (chuyá»ƒn cháº¿ Ä‘á»™ khi nháº£ phÃ­m)
 static CTRL_IS_DOWN: AtomicBool = AtomicBool::new(false);
 static SHIFT_IS_DOWN: AtomicBool = AtomicBool::new(false);
 static CTRL_SHIFT_READY: AtomicBool = AtomicBool::new(false);
 
-// Theo dõi phím đang giữ (auto-repeat) để tối ưu và tránh nghẽn luồng phím Windows
+// Theo dÃµi phÃ­m Ä‘ang giá»¯ (auto-repeat) Ä‘á»ƒ tá»‘i Æ°u vÃ  trÃ¡nh ngháº½n luá»“ng phÃ­m Windows
 static LAST_PHYSICAL_VK: AtomicU32 = AtomicU32::new(0);
 static KEY_REPEAT_COUNT: AtomicU32 = AtomicU32::new(0);
 
-// Caching trạng thái ứng dụng trình duyệt: 0ms latency, không mở process handle trong hook
+// Caching tráº¡ng thÃ¡i á»©ng dá»¥ng trÃ¬nh duyá»‡t: 0ms latency, khÃ´ng má»Ÿ process handle trong hook
 static IS_CURRENT_APP_BROWSER: AtomicBool = AtomicBool::new(false);
 
 pub fn install_hook() -> bool {
@@ -147,7 +147,7 @@ pub fn uninstall_hook() {
     }
 }
 
-/// Callback WinEvent bắt sự kiện chuyển cửa sổ Foreground ngay lập tức khi Alt+Tab hoặc click chuột
+/// Callback WinEvent báº¯t sá»± kiá»‡n chuyá»ƒn cá»­a sá»• Foreground ngay láº­p tá»©c khi Alt+Tab hoáº·c click chuá»™t
 unsafe extern "system" fn win_event_proc(
     _h_win_event_hook: *mut std::ffi::c_void,
     event: u32,
@@ -162,7 +162,7 @@ unsafe extern "system" fn win_event_proc(
     }
 }
 
-/// Lấy tên file thực thi (.exe) từ HWND
+/// Láº¥y tÃªn file thá»±c thi (.exe) tá»« HWND
 pub fn get_process_name_by_hwnd(hwnd: HWND) -> Option<String> {
     if hwnd.is_null() {
         return None;
@@ -196,7 +196,7 @@ pub fn get_process_name_by_hwnd(hwnd: HWND) -> Option<String> {
     None
 }
 
-/// Xử lý khi cửa sổ làm việc thay đổi (chuyển app)
+/// Xá»­ lÃ½ khi cá»­a sá»• lÃ m viá»‡c thay Ä‘á»•i (chuyá»ƒn app)
 pub fn on_focus_window_changed(new_hwnd: HWND) {
     if new_hwnd.is_null() {
         return;
@@ -231,7 +231,7 @@ pub fn on_focus_window_changed(new_hwnd: HWND) {
     };
     IS_CURRENT_APP_BROWSER.store(is_browser, Ordering::Relaxed);
 
-    // Bỏ qua chính cửa sổ HoyuKey dashboard
+    // Bá» qua chÃ­nh cá»­a sá»• HoyuKey dashboard
     if app_name == "hoyukey.exe" {
         return;
     }
@@ -259,12 +259,12 @@ pub fn on_focus_window_changed(new_hwnd: HWND) {
             crate::ui::notify_mode_changed(saved_mode);
         }
     } else {
-        // Lần đầu vào app này: ghi nhớ trạng thái hiện tại
+        // Láº§n Ä‘áº§u vÃ o app nÃ y: ghi nhá»› tráº¡ng thÃ¡i hiá»‡n táº¡i
         map.insert(app_name, current_enabled);
     }
 }
 
-/// Cập nhật trạng thái E / V mới cho ứng dụng đang active
+/// Cáº­p nháº­t tráº¡ng thÃ¡i E / V má»›i cho á»©ng dá»¥ng Ä‘ang active
 pub fn record_current_app_mode(new_enabled: bool) {
     let remember_enabled = {
         let state = match GLOBAL_STATE.lock() {
@@ -298,7 +298,7 @@ unsafe extern "system" fn low_level_mouse_proc(
     if code >= 0 {
         let msg = wparam as u32;
         if msg == WM_LBUTTONUP || msg == WM_RBUTTONUP {
-            // Khi nhả chuột: con trỏ đã đáp xuống vị trí mới -> yêu cầu nạp nền từ tại con trỏ
+            // Khi nháº£ chuá»™t: con trá» Ä‘Ã£ Ä‘Ã¡p xuá»‘ng vá»‹ trÃ­ má»›i -> yÃªu cáº§u náº¡p ná»n tá»« táº¡i con trá»
             if let Ok(mut state) = GLOBAL_STATE.lock() {
                 state.engine.on_mouse_click();
             }
@@ -324,7 +324,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
     let kbd = *(lparam as *const KBDLLHOOKSTRUCT);
 
-    // 1. Nếu là phím do chính HoyuKey tạo ra -> cho qua ngay lập tức để tránh vòng lặp!
+    // 1. Náº¿u lÃ  phÃ­m do chÃ­nh HoyuKey táº¡o ra -> cho qua ngay láº­p tá»©c Ä‘á»ƒ trÃ¡nh vÃ²ng láº·p!
     if kbd.dwExtraInfo == HOYU_MAGIC_EXTRA_INFO {
         return CallNextHookEx(null_mut(), code, wparam, lparam);
     }
@@ -339,14 +339,14 @@ unsafe extern "system" fn low_level_keyboard_proc(
     let is_down = (wparam as u32 == WM_KEYDOWN) || (wparam as u32 == WM_SYSKEYDOWN);
     let is_up = (wparam as u32 == WM_KEYUP) || (wparam as u32 == WM_SYSKEYUP);
 
-    // 2. Xử lý nhả phím (KeyUp):
+    // 2. Xá»­ lÃ½ nháº£ phÃ­m (KeyUp):
     if is_up {
         if LAST_PHYSICAL_VK.load(Ordering::Relaxed) == kbd.vkCode {
             LAST_PHYSICAL_VK.store(0, Ordering::Relaxed);
             KEY_REPEAT_COUNT.store(0, Ordering::Relaxed);
         }
 
-        // Nếu dùng phím tắt Ctrl + Shift: chuyển chế độ khi người dùng nhả phím (chuẩn Windows)
+        // Náº¿u dÃ¹ng phÃ­m táº¯t Ctrl + Shift: chuyá»ƒn cháº¿ Ä‘á»™ khi ngÆ°á»i dÃ¹ng nháº£ phÃ­m (chuáº©n Windows)
         if is_ctrl_key || is_shift_key {
             let (switch_key, switch_key_enabled, pause_shortcut, pause_shortcut_apps) = {
                 let state = GLOBAL_STATE.lock().unwrap();
@@ -373,7 +373,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             }
         }
 
-        // Chặn KeyUp nếu KeyDown tương ứng đã bị bộ gõ chặn (tránh desync trên Chrome/Edge)
+        // Cháº·n KeyUp náº¿u KeyDown tÆ°Æ¡ng á»©ng Ä‘Ã£ bá»‹ bá»™ gÃµ cháº·n (trÃ¡nh desync trÃªn Chrome/Edge)
         if BLOCKED_VK[vk_idx].swap(false, Ordering::SeqCst) {
             return 1;
         }
@@ -384,10 +384,10 @@ unsafe extern "system" fn low_level_keyboard_proc(
         return CallNextHookEx(null_mut(), code, wparam, lparam);
     }
 
-    // Bất kỳ phím vật lý nào được bấm cũng lập tức hủy bỏ các tác vụ Cách 2 đang chờ (nếu có)
+    // Báº¥t ká»³ phÃ­m váº­t lÃ½ nÃ o Ä‘Æ°á»£c báº¥m cÅ©ng láº­p tá»©c há»§y bá» cÃ¡c tÃ¡c vá»¥ CÃ¡ch 2 Ä‘ang chá» (náº¿u cÃ³)
     CARET_REPLACEMENT_SEQ.fetch_add(1, Ordering::Relaxed);
 
-    // 3. Theo dõi auto-repeat khi người dùng giữ phím
+    // 3. Theo dÃµi auto-repeat khi ngÆ°á»i dÃ¹ng giá»¯ phÃ­m
     let repeat_count = if LAST_PHYSICAL_VK.load(Ordering::Relaxed) == kbd.vkCode {
         KEY_REPEAT_COUNT.fetch_add(1, Ordering::Relaxed) + 1
     } else {
@@ -396,8 +396,8 @@ unsafe extern "system" fn low_level_keyboard_proc(
         0
     };
 
-    // Tự động kiểm tra thay đổi cửa sổ làm việc (chuyển tab trình duyệt, chuyển app)
-    // Chỉ kiểm tra ở phím đầu tiên (không kiểm tra khi đang giữ lặp lại phím để tiết kiệm CPU)
+    // Tá»± Ä‘á»™ng kiá»ƒm tra thay Ä‘á»•i cá»­a sá»• lÃ m viá»‡c (chuyá»ƒn tab trÃ¬nh duyá»‡t, chuyá»ƒn app)
+    // Chá»‰ kiá»ƒm tra á»Ÿ phÃ­m Ä‘áº§u tiÃªn (khÃ´ng kiá»ƒm tra khi Ä‘ang giá»¯ láº·p láº¡i phÃ­m Ä‘á»ƒ tiáº¿t kiá»‡m CPU)
     if repeat_count == 0 {
         let current_fg = GetForegroundWindow() as isize;
         let prev_fg = LAST_FOREGROUND_WINDOW.swap(current_fg, Ordering::SeqCst);
@@ -410,7 +410,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
         }
     }
 
-    // 4. Kiểm tra phím tắt chuyển đổi chế độ V / E
+    // 4. Kiá»ƒm tra phÃ­m táº¯t chuyá»ƒn Ä‘á»•i cháº¿ Ä‘á»™ V / E
     if is_ctrl_key || is_shift_key || is_z {
         let (switch_key, switch_key_enabled, pause_shortcut, pause_shortcut_apps) = {
             let state = GLOBAL_STATE.lock().unwrap();
@@ -437,7 +437,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
                             CTRL_SHIFT_READY.store(true, Ordering::SeqCst);
                         }
                     } else {
-                        // Phím thứ 3 được nhấn -> hủy chuyển chế độ
+                        // PhÃ­m thá»© 3 Ä‘Æ°á»£c nháº¥n -> há»§y chuyá»ƒn cháº¿ Ä‘á»™
                         CTRL_SHIFT_READY.store(false, Ordering::SeqCst);
                     }
                 }
@@ -457,8 +457,8 @@ unsafe extern "system" fn low_level_keyboard_proc(
         }
     }
 
-    // 5. Nếu đang giữ Ctrl, Alt hoặc Windows -> phím tắt app khác (Ctrl+C, Ctrl+A, Alt+Tab...),
-    // xóa buffer từ hiện tại và cho phím đi qua tự nhiên
+    // 5. Náº¿u Ä‘ang giá»¯ Ctrl, Alt hoáº·c Windows -> phÃ­m táº¯t app khÃ¡c (Ctrl+C, Ctrl+A, Alt+Tab...),
+    // xÃ³a buffer tá»« hiá»‡n táº¡i vÃ  cho phÃ­m Ä‘i qua tá»± nhiÃªn
     let ctrl_pressed = (GetKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
     let alt_pressed = (GetKeyState(VK_MENU as i32) as u16 & 0x8000) != 0;
     let win_pressed = (GetKeyState(VK_LWIN as i32) as u16 & 0x8000) != 0
@@ -470,7 +470,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
         return CallNextHookEx(null_mut(), code, wparam, lparam);
     }
 
-    // 6. Xử lý Backspace & các phím điều hướng ngắt từ
+    // 6. Xá»­ lÃ½ Backspace & cÃ¡c phÃ­m Ä‘iá»u hÆ°á»›ng ngáº¯t tá»«
     match kbd.vkCode as u16 {
         VK_BACK => {
             BLOCKED_VK[vk_idx].store(false, Ordering::SeqCst);
@@ -481,6 +481,9 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 let browser_apps = state.config.browser_apps.clone();
                 let bs_action = state.engine.handle_backspace(simple_telex);
                 let has_space_before = state.engine.has_space_before;
+                if state.engine.current_word.is_empty() {
+                    state.engine.caret_needs_check = true;
+                }
                 (bs_action, has_space_before, browser_compat, browser_apps)
             };
 
@@ -489,6 +492,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 send_transform_batch(backspaces, &text, has_space_before, browser_compat, &browser_apps);
                 return 1;
             } else {
+                crate::automation::request_caret_refresh();
                 return CallNextHookEx(null_mut(), code, wparam, lparam);
             }
         }
@@ -552,9 +556,9 @@ unsafe extern "system" fn low_level_keyboard_proc(
         _ => {}
     }
 
-    // 7. Chuyển đổi mã phím thành ký tự Unicode
+    // 7. Chuyá»ƒn Ä‘á»•i mÃ£ phÃ­m thÃ nh kÃ½ tá»± Unicode
     if let Some(ch) = vk_to_char(kbd.vkCode, kbd.scanCode) {
-        // Kiểm tra nạp nền con trỏ (Background Caret Context - 0ms latency, không block hook)
+        // Kiá»ƒm tra náº¡p ná»n con trá» (Background Caret Context - 0ms latency, khÃ´ng block hook)
         if repeat_count == 0 {
             let (
                 enabled,
@@ -585,10 +589,10 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 )
             };
 
-            // Kích hoạt sửa dấu tại con trỏ CHỈ KHI người dùng vừa click chuột / điều hướng con trỏ (caret_needs_check)
+            // KÃ­ch hoáº¡t sá»­a dáº¥u táº¡i con trá» CHá»ˆ KHI ngÆ°á»i dÃ¹ng vá»«a click chuá»™t / Ä‘iá»u hÆ°á»›ng con trá» (caret_needs_check)
             if enabled && dynamic_caret && is_empty && caret_needs_check && !at_start_of_line && !is_after_whitespace {
-                // CHỈ các phím dấu thanh (s, f, r, x, j, z) mới là candidate!
-                // TUYỆT ĐỐI không bao gồm w, a, e, o, d vì đó là các chữ cái bắt đầu từ thông thường.
+                // CHá»ˆ cÃ¡c phÃ­m dáº¥u thanh (s, f, r, x, j, z) má»›i lÃ  candidate!
+                // TUYá»†T Äá»I khÃ´ng bao gá»“m w, a, e, o, d vÃ¬ Ä‘Ã³ lÃ  cÃ¡c chá»¯ cÃ¡i báº¯t Ä‘áº§u tá»« thÃ´ng thÆ°á»ng.
                 let is_candidate_key = if is_telex {
                     matches!(ch, 's' | 'f' | 'r' | 'x' | 'j' | 'z' |
                                  'S' | 'F' | 'R' | 'X' | 'J' | 'Z')
@@ -597,7 +601,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
                 };
 
                 if is_candidate_key {
-                    // CHỈ đọc từ cache nền (0ms latency, TUYỆT ĐỐI không gọi COM UIA đồng bộ trong hook!)
+                    // CHá»ˆ Ä‘á»c tá»« cache ná»n (0ms latency, TUYá»†T Äá»I khÃ´ng gá»i COM UIA Ä‘á»“ng bá»™ trong hook!)
                     let caret_word_ctx = crate::automation::get_cached_caret_word();
 
                     if let Some(ctx) = caret_word_ctx {
@@ -644,7 +648,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
                             }
                         }
                     } else {
-                        // Cách 2: Gửi yêu cầu tới dedicated worker thread với debounce 75ms (0ms hook latency, không spawn thread)
+                        // CÃ¡ch 2: Gá»­i yÃªu cáº§u tá»›i dedicated worker thread vá»›i debounce 75ms (0ms hook latency, khÃ´ng spawn thread)
                         let seq = CARET_REPLACEMENT_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
                         if let Ok(mut lock) = CARET_REPLACE_QUEUE.lock() {
                             *lock = Some(CaretReplaceRequest {
@@ -667,7 +671,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
         }
         crate::automation::clear_cached_caret_word();
 
-        // Xử lý biến đổi ký tự thông qua engine (chỉ lock 1 lần duy nhất, lấy kết quả và mở khóa ngay)
+        // Xá»­ lÃ½ biáº¿n Ä‘á»•i kÃ½ tá»± thÃ´ng qua engine (chá»‰ lock 1 láº§n duy nháº¥t, láº¥y káº¿t quáº£ vÃ  má»Ÿ khÃ³a ngay)
         let (action, has_space_before, browser_compatibility, browser_apps) = {
             let mut state = GLOBAL_STATE.lock().unwrap();
             let state = &mut *state;
@@ -715,7 +719,7 @@ pub fn toggle_vietnamese_mode() {
         (state.main_hwnd, state.config.enabled, state.config.notify_on_toggle)
     };
 
-    // Ghi nhớ trạng thái mới cho ứng dụng hiện tại nếu tính năng đang bật
+    // Ghi nhá»› tráº¡ng thÃ¡i má»›i cho á»©ng dá»¥ng hiá»‡n táº¡i náº¿u tÃ­nh nÄƒng Ä‘ang báº­t
     record_current_app_mode(enabled);
 
     if hwnd != 0 {
@@ -726,9 +730,9 @@ pub fn toggle_vietnamese_mode() {
 
     if notify_toggle {
         let msg = if enabled {
-            "Đã bật Tiếng Việt"
+            "ÄÃ£ báº­t Tiáº¿ng Viá»‡t"
         } else {
-            "Đã tắt Tiếng Việt"
+            "ÄÃ£ táº¯t Tiáº¿ng Viá»‡t"
         };
         crate::show_notification("HoyuKey", msg);
     }
@@ -743,8 +747,8 @@ fn reset_engine() {
 
 fn vk_to_char(vk: u32, scan_code: u32) -> Option<char> {
     unsafe {
-        // 1. Phím chữ cái A-Z (chiếm 99% khi gõ tiếng Việt):
-        // Xử lý trực tiếp từ Virtual Key mà KHÔNG gọi ToUnicode làm hỏng dead-key state của Windows/Chrome!
+        // 1. PhÃ­m chá»¯ cÃ¡i A-Z (chiáº¿m 99% khi gÃµ tiáº¿ng Viá»‡t):
+        // Xá»­ lÃ½ trá»±c tiáº¿p tá»« Virtual Key mÃ  KHÃ”NG gá»i ToUnicode lÃ m há»ng dead-key state cá»§a Windows/Chrome!
         if (0x41..=0x5A).contains(&vk) {
             let shift = (GetKeyState(VK_SHIFT as i32) as u16 & 0x8000) != 0;
             let caps = (GetKeyState(0x14) as u16 & 0x0001) != 0; // VK_CAPITAL = 0x14
@@ -753,7 +757,7 @@ fn vk_to_char(vk: u32, scan_code: u32) -> Option<char> {
             return Some(ch);
         }
 
-        // 2. Phím số 0-9 khi không giữ Shift:
+        // 2. PhÃ­m sá»‘ 0-9 khi khÃ´ng giá»¯ Shift:
         if (0x30..=0x39).contains(&vk) {
             let shift = (GetKeyState(VK_SHIFT as i32) as u16 & 0x8000) != 0;
             if !shift {
@@ -761,7 +765,7 @@ fn vk_to_char(vk: u32, scan_code: u32) -> Option<char> {
             }
         }
 
-        // 3. Các phím ký tự khác (dấu câu, ký hiệu đặc biệt):
+        // 3. CÃ¡c phÃ­m kÃ½ tá»± khÃ¡c (dáº¥u cÃ¢u, kÃ½ hiá»‡u Ä‘áº·c biá»‡t):
         let mut key_state = [0u8; 256];
         GetKeyboardState(key_state.as_mut_ptr());
 
@@ -772,7 +776,7 @@ fn vk_to_char(vk: u32, scan_code: u32) -> Option<char> {
             key_state.as_ptr(),
             utf16_buf.as_mut_ptr(),
             utf16_buf.len() as i32,
-            4, // wFlags = 4: không làm thay đổi trạng thái bàn phím hệ thống
+            4, // wFlags = 4: khÃ´ng lÃ m thay Ä‘á»•i tráº¡ng thÃ¡i bÃ n phÃ­m há»‡ thá»‘ng
         );
 
         if len > 0 {
@@ -787,8 +791,8 @@ fn vk_to_char(vk: u32, scan_code: u32) -> Option<char> {
 
 
 
-/// Gửi chuỗi Delete, Backspace và Unicode Text nguyên tử (Atomic SendInput).
-/// Hỗ trợ sửa dấu tại con trỏ (xóa đuôi sau con trỏ bằng Delete và xóa đầu trước con trỏ bằng Backspace).
+/// Gá»­i chuá»—i Delete, Backspace vÃ  Unicode Text nguyÃªn tá»­ (Atomic SendInput).
+/// Há»— trá»£ sá»­a dáº¥u táº¡i con trá» (xÃ³a Ä‘uÃ´i sau con trá» báº±ng Delete vÃ  xÃ³a Ä‘áº§u trÆ°á»›c con trá» báº±ng Backspace).
 unsafe fn send_replace_batch(deletes: usize, backspaces: usize, text: &str) {
     if deletes == 0 && backspaces == 0 && text.is_empty() {
         return;
@@ -796,7 +800,7 @@ unsafe fn send_replace_batch(deletes: usize, backspaces: usize, text: &str) {
 
     let mut inputs = Vec::with_capacity((deletes + backspaces) * 2 + text.encode_utf16().count() * 2);
 
-    // 1. Gửi phím Delete để xóa phần đuôi phía sau con trỏ (nếu con trỏ đang ở giữa từ)
+    // 1. Gá»­i phÃ­m Delete Ä‘á»ƒ xÃ³a pháº§n Ä‘uÃ´i phÃ­a sau con trá» (náº¿u con trá» Ä‘ang á»Ÿ giá»¯a tá»«)
     for _ in 0..deletes {
         let mut down: INPUT = std::mem::zeroed();
         down.r#type = INPUT_KEYBOARD;
@@ -821,7 +825,7 @@ unsafe fn send_replace_batch(deletes: usize, backspaces: usize, text: &str) {
         inputs.push(up);
     }
 
-    // 2. Gửi phím Backspace để xóa phần đầu phía trước con trỏ
+    // 2. Gá»­i phÃ­m Backspace Ä‘á»ƒ xÃ³a pháº§n Ä‘áº§u phÃ­a trÆ°á»›c con trá»
     for _ in 0..backspaces {
         let mut down: INPUT = std::mem::zeroed();
         down.r#type = INPUT_KEYBOARD;
@@ -846,7 +850,7 @@ unsafe fn send_replace_batch(deletes: usize, backspaces: usize, text: &str) {
         inputs.push(up);
     }
 
-    // 3. Bơm chuỗi Unicode tiếng Việt mới
+    // 3. BÆ¡m chuá»—i Unicode tiáº¿ng Viá»‡t má»›i
     for c in text.encode_utf16() {
         let mut down: INPUT = std::mem::zeroed();
         down.r#type = INPUT_KEYBOARD;
@@ -871,8 +875,8 @@ unsafe fn send_replace_batch(deletes: usize, backspaces: usize, text: &str) {
         inputs.push(up);
     }
 
-    // 4. Nếu trước đó đã xóa phần đuôi bằng Delete (con trỏ ở giữa từ):
-    // Gửi lại đúng số phím Left Arrow để đưa con trỏ quay về đúng vị trí giữa từ ban đầu!
+    // 4. Náº¿u trÆ°á»›c Ä‘Ã³ Ä‘Ã£ xÃ³a pháº§n Ä‘uÃ´i báº±ng Delete (con trá» á»Ÿ giá»¯a tá»«):
+    // Gá»­i láº¡i Ä‘Ãºng sá»‘ phÃ­m Left Arrow Ä‘á»ƒ Ä‘Æ°a con trá» quay vá» Ä‘Ãºng vá»‹ trÃ­ giá»¯a tá»« ban Ä‘áº§u!
     for _ in 0..deletes {
         let mut down: INPUT = std::mem::zeroed();
         down.r#type = INPUT_KEYBOARD;
@@ -997,9 +1001,9 @@ unsafe fn is_focused_in_web_content() -> bool {
         let len = GetClassNameW(gui_info.hwndFocus, class_buf.as_mut_ptr(), class_buf.len() as i32);
         if len > 0 {
             let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
-            // Trên Chrome, Edge, Brave, Cốc Cốc, Opera:
-            // Cửa sổ hiển thị nội dung trang web luôn có class name chứa "RenderWidgetHost"
-            // (ví dụ: Chrome_RenderWidgetHostHWND)
+            // TrÃªn Chrome, Edge, Brave, Cá»‘c Cá»‘c, Opera:
+            // Cá»­a sá»• hiá»ƒn thá»‹ ná»™i dung trang web luÃ´n cÃ³ class name chá»©a "RenderWidgetHost"
+            // (vÃ­ dá»¥: Chrome_RenderWidgetHostHWND)
             if class_name.contains("RenderWidgetHost") {
                 return true;
             }
@@ -1008,9 +1012,9 @@ unsafe fn is_focused_in_web_content() -> bool {
     false
 }
 
-/// Gửi chuỗi Backspace và Unicode Text nguyên tử (Atomic SendInput).
-/// Gửi chuẩn Win32 API tương thích hoàn hảo với mọi ứng dụng, trình duyệt Chrome, Edge, Firefox, Word, Excel.
-/// Tự động cache theo HWND cửa sổ foreground để đạt tốc độ 0ms không gọi OpenProcess lặp lại.
+/// Gá»­i chuá»—i Backspace vÃ  Unicode Text nguyÃªn tá»­ (Atomic SendInput).
+/// Gá»­i chuáº©n Win32 API tÆ°Æ¡ng thÃ­ch hoÃ n háº£o vá»›i má»i á»©ng dá»¥ng, trÃ¬nh duyá»‡t Chrome, Edge, Firefox, Word, Excel.
+/// Tá»± Ä‘á»™ng cache theo HWND cá»­a sá»• foreground Ä‘á»ƒ Ä‘áº¡t tá»‘c Ä‘á»™ 0ms khÃ´ng gá»i OpenProcess láº·p láº¡i.
 unsafe fn send_transform_batch(
     backspaces: usize,
     text: &str,
@@ -1023,10 +1027,10 @@ unsafe fn send_transform_batch(
     }
 
     let is_browser = browser_compatibility && is_foreground_browser_app(browser_apps);
-    // Khi người dùng gõ trên thanh địa chỉ trình duyệt (Chrome, Edge, Brave, Cốc Cốc, Opera):
-    // Trình duyệt tự động bôi đen (inline selection) gợi ý URL/tìm kiếm đầu tiên.
-    // Nếu chưa có dấu cách (!has_space_before) và không phải trong nội dung web (!is_focused_in_web_content):
-    // Phím Backspace đầu tiên sẽ xóa vùng chọn gợi ý của trình duyệt, do đó cần thêm 1 Backspace để xóa ký tự gốc.
+    // Khi ngÆ°á»i dÃ¹ng gÃµ trÃªn thanh Ä‘á»‹a chá»‰ trÃ¬nh duyá»‡t (Chrome, Edge, Brave, Cá»‘c Cá»‘c, Opera):
+    // TrÃ¬nh duyá»‡t tá»± Ä‘á»™ng bÃ´i Ä‘en (inline selection) gá»£i Ã½ URL/tÃ¬m kiáº¿m Ä‘áº§u tiÃªn.
+    // Náº¿u chÆ°a cÃ³ dáº¥u cÃ¡ch (!has_space_before) vÃ  khÃ´ng pháº£i trong ná»™i dung web (!is_focused_in_web_content):
+    // PhÃ­m Backspace Ä‘áº§u tiÃªn sáº½ xÃ³a vÃ¹ng chá»n gá»£i Ã½ cá»§a trÃ¬nh duyá»‡t, do Ä‘Ã³ cáº§n thÃªm 1 Backspace Ä‘á»ƒ xÃ³a kÃ½ tá»± gá»‘c.
     let need_omnibox_fix = is_browser && !has_space_before && !is_focused_in_web_content();
     let total_backspaces = if need_omnibox_fix { backspaces + 1 } else { backspaces };
 
@@ -1082,7 +1086,7 @@ pub fn init_caret_replacement_worker() {
                     while lock.is_none() {
                         lock = CARET_REPLACE_CONDVAR.wait(lock).unwrap();
                     }
-                    // Chờ debounce 30ms: phản hồi siêu tốc, gần như tức thì khi bấm phím sửa dấu
+                    // Chá» debounce 30ms: pháº£n há»“i siÃªu tá»‘c, gáº§n nhÆ° tá»©c thÃ¬ khi báº¥m phÃ­m sá»­a dáº¥u
                     let (new_lock, timeout_res) = CARET_REPLACE_CONDVAR
                         .wait_timeout(lock, std::time::Duration::from_millis(30))
                         .unwrap();
@@ -1218,24 +1222,24 @@ fn perform_post_type_selection_replacement(
     simple_telex: bool,
 ) {
     unsafe {
-        // 1. Sao lưu clipboard hiện tại của người dùng
+        // 1. Sao lÆ°u clipboard hiá»‡n táº¡i cá»§a ngÆ°á»i dÃ¹ng
         let old_clipboard = get_clipboard_text();
 
-        // 2. Xóa clipboard để đón dữ liệu mới từ ứng dụng
+        // 2. XÃ³a clipboard Ä‘á»ƒ Ä‘Ã³n dá»¯ liá»‡u má»›i tá»« á»©ng dá»¥ng
         if OpenClipboard(null_mut()) != 0 {
             EmptyClipboard();
             CloseClipboard();
         }
 
-        // 3. Gửi Ctrl + Shift + Left để bôi đen từ vừa gõ (bao gồm cả ký tự ch vừa gõ vào)
+        // 3. Gá»­i Ctrl + Shift + Left Ä‘á»ƒ bÃ´i Ä‘en tá»« vá»«a gÃµ (bao gá»“m cáº£ kÃ½ tá»± ch vá»«a gÃµ vÃ o)
         send_key_combo(&[VK_CONTROL, VK_SHIFT, VK_LEFT]);
-        // Chờ 10ms để ứng dụng (Chrome, Discord, Word...) kịp cập nhật vùng chọn
+        // Chá» 10ms Ä‘á»ƒ á»©ng dá»¥ng (Chrome, Discord, Word...) ká»‹p cáº­p nháº­t vÃ¹ng chá»n
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        // 4. Gửi Ctrl + C để copy từ đã bôi đen
+        // 4. Gá»­i Ctrl + C Ä‘á»ƒ copy tá»« Ä‘Ã£ bÃ´i Ä‘en
         send_key_combo(&[VK_CONTROL, b'C' as u16]);
 
-        // 5. Chờ ứng dụng đưa dữ liệu vào clipboard (tối đa 45ms, kiểm tra mỗi 3ms để đón dữ liệu ngay khi sẵn sàng)
+        // 5. Chá» á»©ng dá»¥ng Ä‘Æ°a dá»¯ liá»‡u vÃ o clipboard (tá»‘i Ä‘a 45ms, kiá»ƒm tra má»—i 3ms Ä‘á»ƒ Ä‘Ã³n dá»¯ liá»‡u ngay khi sáºµn sÃ ng)
         let mut copied = None;
         for _ in 0..15 {
             std::thread::sleep(std::time::Duration::from_millis(3));
@@ -1251,11 +1255,11 @@ fn perform_post_type_selection_replacement(
         if let Some(ref raw_text) = copied {
             let trimmed_end = raw_text.trim_end();
             let ch_lower = ch.to_ascii_lowercase();
-            // Chuỗi copy được phải kết thúc bằng ký tự ch vừa gõ
+            // Chuá»—i copy Ä‘Æ°á»£c pháº£i káº¿t thÃºc báº±ng kÃ½ tá»± ch vá»«a gÃµ
             if trimmed_end.ends_with(ch) || trimmed_end.to_lowercase().ends_with(ch_lower) {
                 let mut chars: Vec<char> = trimmed_end.chars().collect();
                 if chars.len() >= 2 {
-                    chars.pop(); // Bỏ ký tự ch
+                    chars.pop(); // Bá» kÃ½ tá»± ch
                     let base_word: String = chars.into_iter().collect();
                     let trimmed = base_word.trim();
 
@@ -1297,13 +1301,13 @@ fn perform_post_type_selection_replacement(
         }
 
         if let Some(new_word) = transformed_word {
-            // THÀNH CÔNG: Đưa từ mới vào clipboard và gửi Ctrl + V để thay thế vùng chọn nguyên tử
+            // THÃ€NH CÃ”NG: ÄÆ°a tá»« má»›i vÃ o clipboard vÃ  gá»­i Ctrl + V Ä‘á»ƒ thay tháº¿ vÃ¹ng chá»n nguyÃªn tá»­
             set_clipboard_text(&new_word);
             send_key_combo(&[VK_CONTROL, b'V' as u16]);
-            // Chờ 20ms để ứng dụng dán xong văn bản mới trước khi khôi phục clipboard cũ
+            // Chá» 20ms Ä‘á»ƒ á»©ng dá»¥ng dÃ¡n xong vÄƒn báº£n má»›i trÆ°á»›c khi khÃ´i phá»¥c clipboard cÅ©
             std::thread::sleep(std::time::Duration::from_millis(20));
 
-            // Cập nhật engine
+            // Cáº­p nháº­t engine
             if let Ok(mut state) = GLOBAL_STATE.lock() {
                 let clean = new_word.trim().to_string();
                 let len = clean.chars().count();
@@ -1315,11 +1319,11 @@ fn perform_post_type_selection_replacement(
                 state.engine.caret_offset = Some(len);
             }
         } else {
-            // Không phải từ cần đổi dấu: Hủy bôi đen bằng phím Right Arrow để đưa con trỏ về vị trí cũ
+            // KhÃ´ng pháº£i tá»« cáº§n Ä‘á»•i dáº¥u: Há»§y bÃ´i Ä‘en báº±ng phÃ­m Right Arrow Ä‘á»ƒ Ä‘Æ°a con trá» vá» vá»‹ trÃ­ cÅ©
             send_single_key(VK_RIGHT);
         }
 
-        // 6. Khôi phục lại clipboard cũ của người dùng
+        // 6. KhÃ´i phá»¥c láº¡i clipboard cÅ© cá»§a ngÆ°á»i dÃ¹ng
         if let Some(old) = old_clipboard {
             set_clipboard_text(&old);
         } else if OpenClipboard(null_mut()) != 0 {
