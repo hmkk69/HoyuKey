@@ -114,7 +114,7 @@ impl Engine {
     pub fn on_window_change(&mut self) {
         self.reset();
         self.line_words.clear();
-        self.at_start_of_line = true;
+        self.at_start_of_line = false;
         self.after_sentence_end = false;
         self.saw_sentence_end_punct = false;
         self.was_at_line_start = false;
@@ -161,13 +161,17 @@ impl Engine {
                 self.raw_keys.clear();
                 self.has_transformed = false;
                 self.caret_offset = None;
-                // Nếu từ vừa bị xóa sạch là từ đầu dòng hoặc toàn bộ các từ trước đó trên dòng cũng đã bị xóa:
-                if self.was_at_line_start || self.line_words.is_empty() {
+                // Chỉ khôi phục đầu dòng / đầu câu nếu từ này thực sự là từ đầu dòng / đầu câu
+                if self.was_at_line_start {
                     self.at_start_of_line = true;
                     self.has_typed_in_line = false;
+                } else {
+                    self.at_start_of_line = false;
                 }
                 if self.was_at_sentence_start {
                     self.after_sentence_end = true;
+                } else {
+                    self.after_sentence_end = false;
                 }
             } else {
                 self.caret_offset = Some(self.current_word.chars().count());
@@ -180,8 +184,10 @@ impl Engine {
                 self.spaces_after_word = 0;
                 if simple_telex {
                     if self.line_words.pop().is_none() {
-                        self.at_start_of_line = true;
-                        self.has_typed_in_line = false;
+                        if self.was_at_line_start {
+                            self.at_start_of_line = true;
+                            self.has_typed_in_line = false;
+                        }
                     }
                 } else if let Some(last_word) = self.line_words.pop() {
                     self.current_word = last_word.word;
@@ -189,18 +195,21 @@ impl Engine {
                     self.has_transformed = last_word.transformed;
                     self.was_at_line_start = last_word.was_line_start;
                     self.was_at_sentence_start = last_word.was_sentence_start;
+                    self.at_start_of_line = last_word.was_line_start;
                     self.caret_offset = Some(self.current_word.chars().count());
                     self.last_char_typed = self.current_word.chars().last();
                     self.has_space_before = false;
                     self.last_word_before_space = self.line_words.last().map(|w| (w.word.clone(), w.raw.clone(), w.transformed));
-                } else {
+                } else if self.was_at_line_start {
                     self.at_start_of_line = true;
                     self.has_typed_in_line = false;
                 }
             } else if simple_telex {
                 if self.line_words.pop().is_none() {
-                    self.at_start_of_line = true;
-                    self.has_typed_in_line = false;
+                    if self.was_at_line_start {
+                        self.at_start_of_line = true;
+                        self.has_typed_in_line = false;
+                    }
                 }
             } else if let Some(last_word) = self.line_words.pop() {
                 self.current_word = last_word.word;
@@ -208,12 +217,13 @@ impl Engine {
                 self.has_transformed = last_word.transformed;
                 self.was_at_line_start = last_word.was_line_start;
                 self.was_at_sentence_start = last_word.was_sentence_start;
+                self.at_start_of_line = last_word.was_line_start;
                 self.caret_offset = Some(self.current_word.chars().count());
                 self.last_char_typed = self.current_word.chars().last();
                 self.has_space_before = false;
                 self.last_word_before_space = self.line_words.last().map(|w| (w.word.clone(), w.raw.clone(), w.transformed));
-            } else {
-                // Toàn bộ dòng đã rỗng hoàn toàn:
+            } else if self.was_at_line_start {
+                // Toàn bộ dòng đã rỗng hoàn toàn và trước đó ở đầu dòng:
                 self.at_start_of_line = true;
                 self.has_typed_in_line = false;
             }
@@ -295,11 +305,9 @@ impl Engine {
         self.line_words.clear();
         self.last_word_before_space = None;
         self.last_char_typed = None;
-        if !self.has_typed_in_line {
-            self.at_start_of_line = true;
-        } else {
-            self.at_start_of_line = false;
-        }
+        self.at_start_of_line = false;
+        self.after_sentence_end = false;
+        self.saw_sentence_end_punct = false;
         self.was_at_line_start = false;
         self.was_at_sentence_start = false;
         self.caret_needs_check = true;
@@ -378,7 +386,10 @@ impl Engine {
         }
 
         // 3. Xử lý tính năng Tự động viết hoa (Auto Capitalization)
-        let should_capitalize = c.is_alphabetic()
+        // CHỈ áp dụng cho ký tự ĐẦU TIÊN của một từ mới (current_word phải rỗng).
+        // Tuyệt đối không bao giờ viết hoa giữa từ (như 's' trong 'release')!
+        let should_capitalize = self.current_word.is_empty()
+            && c.is_alphabetic()
             && ((config.auto_caps_line && self.at_start_of_line)
                 || (config.auto_caps_sentence && self.after_sentence_end));
 
@@ -755,7 +766,7 @@ fn remove_tone_from_word(word: &str) -> String {
     chars.into_iter().collect()
 }
 
-fn is_word_boundary(c: char) -> bool {
+pub fn is_word_boundary(c: char) -> bool {
     matches!(
         c,
         '.' | ',' | ';' | ':' | '!' | '?' | '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}' | '<'
@@ -1253,6 +1264,37 @@ mod tests {
         }
         let a_m = engine.process_char('m', &config);
         assert_eq!(a_m, KeyAction::Transform { backspaces: 0, text: "M".to_string() }, "Sau khi xóa từ đầu câu, gõ lại từ khác vẫn phải viết hoa đầu câu!");
+    }
+
+    #[test]
+    fn test_no_mid_word_caps_and_mouse_click() {
+        let mut engine = Engine::new();
+        let mut config = TypingConfig::default();
+        config.auto_caps_line = true;
+        config.auto_caps_sentence = true;
+
+        // 1. Gõ từ "release": chữ 's' trong 'release' tuyệt đối không bị viết hoa thành 'S'
+        engine.on_enter();
+        let act_r = engine.process_char('r', &config);
+        assert_eq!(act_r, KeyAction::Transform { backspaces: 0, text: "R".to_string() });
+        for ch in "elea".chars() {
+            engine.process_char(ch, &config);
+        }
+        assert_eq!(engine.current_word, "Relea");
+        let act_s = engine.process_char('s', &config);
+        assert_ne!(act_s, KeyAction::Transform { backspaces: 0, text: "S".to_string() }, "Chữ 's' giữa từ không được viết hoa!");
+        engine.process_char('e', &config);
+        assert_eq!(engine.current_word, "Release");
+
+        // 2. Click chuột vào văn bản: không được coi là đầu dòng
+        engine.on_mouse_click();
+        let act_c = engine.process_char('c', &config);
+        assert_eq!(act_c, KeyAction::PassThrough, "Sau khi click chuột không được viết hoa chữ!");
+
+        // 3. Đổi cửa sổ: không được coi là đầu dòng
+        engine.on_window_change();
+        let act_w = engine.process_char('w', &config);
+        assert_eq!(act_w, KeyAction::PassThrough, "Sau khi đổi cửa sổ không được viết hoa chữ!");
     }
 
         #[test]

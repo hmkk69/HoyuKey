@@ -578,7 +578,9 @@ unsafe extern "system" fn low_level_keyboard_proc(
                     state.config.simple_telex,
                     state.engine.current_word.is_empty(),
                     state.engine.caret_needs_check,
-                    state.engine.last_char_typed.map_or(false, |c| c.is_whitespace()),
+                    state.engine.has_space_before
+                        || state.engine.spaces_after_word > 0
+                        || state.engine.last_char_typed.map_or(false, |c| c.is_whitespace() || crate::engine::is_word_boundary(c)),
                     state.engine.at_start_of_line,
                 )
             };
