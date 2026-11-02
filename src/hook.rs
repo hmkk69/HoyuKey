@@ -641,6 +641,21 @@ unsafe extern "system" fn low_level_keyboard_proc(
                                 return 1;
                             }
                         }
+                    } else {
+                        // Cách 2 tối ưu: Dự phòng khi UI Automation không có ngữ cảnh (Chrome, Discord, Games...)
+                        let seq = CARET_REPLACEMENT_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+                        if let Ok(mut lock) = CARET_REPLACE_QUEUE.lock() {
+                            *lock = Some(CaretReplaceRequest {
+                                seq,
+                                ch,
+                                is_telex,
+                                modern_tone,
+                                free_marking,
+                                smart_english,
+                                simple_telex,
+                            });
+                            CARET_REPLACE_CONDVAR.notify_one();
+                        }
                     }
                 }
             }
@@ -1079,8 +1094,49 @@ static CARET_REPLACE_QUEUE: Mutex<Option<CaretReplaceRequest>> = Mutex::new(None
 static CARET_REPLACE_CONDVAR: std::sync::Condvar = std::sync::Condvar::new();
 
 pub fn init_caret_replacement_worker() {
-    // Đã vô hiệu hóa Cách 2 (Ctrl+Shift+Left / Ctrl+C) để tránh xung đột cướp clipboard
-    // hoặc vô tình bôi đen nuốt mất dấu cách / chữ cái của người dùng khi đang gõ nhanh.
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    std::thread::Builder::new()
+        .name("hoyukey-caret-replace".to_string())
+        .spawn(|| {
+            loop {
+                let req = {
+                    let mut lock = CARET_REPLACE_QUEUE.lock().unwrap();
+                    while lock.is_none() {
+                        lock = CARET_REPLACE_CONDVAR.wait(lock).unwrap();
+                    }
+                    // Chờ debounce 25ms: đủ để ký tự vừa gõ xuất hiện trên màn hình
+                    let (new_lock, timeout_res) = CARET_REPLACE_CONDVAR
+                        .wait_timeout(lock, std::time::Duration::from_millis(25))
+                        .unwrap();
+                    lock = new_lock;
+                    if timeout_res.timed_out() {
+                        lock.take()
+                    } else {
+                        continue;
+                    }
+                };
+
+                if let Some(req) = req {
+                    // QUAN TRỌNG: Nếu người dùng đã gõ tiếp bất kỳ phím nào trong 25ms qua, hủy ngay!
+                    if CARET_REPLACEMENT_SEQ.load(Ordering::SeqCst) == req.seq {
+                        perform_post_type_selection_replacement(
+                            req.seq,
+                            req.ch,
+                            req.is_telex,
+                            req.modern_tone,
+                            req.free_marking,
+                            req.smart_english,
+                            req.simple_telex,
+                        );
+                    }
+                }
+            }
+        })
+        .ok();
 }
 
 pub(crate) unsafe fn get_clipboard_text() -> Option<String> {
@@ -1185,6 +1241,7 @@ unsafe fn send_single_key(vk: u16) {
 
 #[allow(dead_code)]
 fn perform_post_type_selection_replacement(
+    seq: u64,
     ch: char,
     is_telex: bool,
     modern_tone: bool,
@@ -1192,6 +1249,9 @@ fn perform_post_type_selection_replacement(
     smart_english: bool,
     simple_telex: bool,
 ) {
+    if CARET_REPLACEMENT_SEQ.load(Ordering::SeqCst) != seq {
+        return;
+    }
     unsafe {
         // 1. Sao lÆ°u clipboard hiá»‡n táº¡i cá»§a ngÆ°á»i dÃ¹ng
         let old_clipboard = get_clipboard_text();
@@ -1227,7 +1287,10 @@ fn perform_post_type_selection_replacement(
             let trimmed_end = raw_text.trim_end();
             let ch_lower = ch.to_ascii_lowercase();
             // Chuá»—i copy Ä‘Æ°á»£c pháº£i káº¿t thÃºc báº±ng kÃ½ tá»± ch vá»«a gÃµ
-            if trimmed_end.ends_with(ch) || trimmed_end.to_lowercase().ends_with(ch_lower) {
+            // Chỉ can thiệp nếu vùng chọn kết thúc bằng ký tự ch và KHÔNG chứa dấu cách ở giữa (đơn từ)
+            if (trimmed_end.ends_with(ch) || trimmed_end.to_lowercase().ends_with(ch_lower))
+                && !trimmed_end.trim().contains(' ')
+            {
                 let mut chars: Vec<char> = trimmed_end.chars().collect();
                 if chars.len() >= 2 {
                     chars.pop(); // Bá» kÃ½ tá»± ch

@@ -132,27 +132,22 @@ impl Engine {
                 self.raw_keys.clear();
                 self.has_transformed = false;
                 self.caret_offset = None;
-                // Khi xóa hết từ trở về rỗng:
-                // 1. Nếu từ này mở đầu dòng hoặc trước đó không có từ nào -> Khôi phục đầu dòng!
-                if self.was_at_line_start || self.last_word_before_space.is_none() {
+                // CHỈ khôi phục viết hoa nếu chính từ vừa bị xóa là từ mở đầu dòng / mở đầu câu:
+                // Tuyệt đối không kiểm tra last_word_before_space để tránh viết hoa nhầm giữa câu!
+                if self.was_at_line_start {
                     self.at_start_of_line = true;
                     self.has_typed_in_line = false;
                 }
-                // 2. Nếu từ này mở đầu câu sau dấu ngắt câu -> Khôi phục đầu câu!
-                if self.was_at_sentence_start || self.saw_sentence_end_punct {
+                if self.was_at_sentence_start {
                     self.after_sentence_end = true;
                 }
             } else {
                 self.caret_offset = Some(self.current_word.chars().count());
             }
         } else {
-            // Buffer đã rỗng, người dùng đang ấn Backspace xóa lùi tiếp trên dòng
-            if self.last_word_before_space.is_none() {
+            // Buffer đã rỗng: chỉ khôi phục đầu dòng nếu dòng chưa hề có chữ nào được gõ
+            if !self.has_typed_in_line {
                 self.at_start_of_line = true;
-                self.has_typed_in_line = false;
-            }
-            if self.saw_sentence_end_punct {
-                self.after_sentence_end = true;
             }
         }
     }
@@ -1089,6 +1084,25 @@ mod tests {
         assert!(engine.current_word.is_empty());
         let a_h3 = engine.process_char('h', &config);
         assert_eq!(a_h3, KeyAction::Transform { backspaces: 0, text: "H".to_string() });
+
+        // 7. Kiểm tra TUYỆT ĐỐI không viết hoa giữa câu khi gõ và xóa giữa chừng:
+        // Gõ "co " rồi gõ "hoat", xóa hết "hoat", gõ lại "hoat" -> Phải giữ nguyên "hoat" viết thường!
+        engine.process_char(' ', &config);
+        engine.process_char('c', &config);
+        engine.process_char('o', &config);
+        engine.process_char('s', &config); // có
+        engine.process_char(' ', &config);
+        let a_mid1 = engine.process_char('h', &config);
+        assert_eq!(a_mid1, KeyAction::PassThrough, "Chữ 'h' giữa câu không được viết hoa!");
+        engine.process_char('o', &config);
+        engine.process_char('a', &config);
+        engine.process_char('t', &config);
+        for _ in 0..4 {
+            engine.handle_backspace(false);
+        }
+        assert!(engine.current_word.is_empty());
+        let a_mid2 = engine.process_char('h', &config);
+        assert_eq!(a_mid2, KeyAction::PassThrough, "Chữ 'h' giữa câu sau khi backspace xóa từ KHÔNG ĐƯỢC viết hoa!");
     }
 
         #[test]
