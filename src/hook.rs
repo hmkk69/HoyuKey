@@ -932,31 +932,58 @@ unsafe fn is_foreground_browser_app(browser_apps: &str) -> bool {
         return false;
     }
 
+    let mut is_browser = false;
+
+    // 1. Kiểm tra qua OpenProcess và QueryFullProcessImageNameW
     let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-    if process.is_null() {
-        return false;
+    if !process.is_null() {
+        let mut path_buf = [0u16; 1024];
+        let mut size = path_buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(process, 0, path_buf.as_mut_ptr(), &mut size);
+        CloseHandle(process);
+
+        if ok != 0 && size > 0 {
+            let full_path = String::from_utf16_lossy(&path_buf[..size as usize]);
+            let exe_name = std::path::Path::new(&full_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+
+            // Khớp với danh sách do người dùng cấu hình
+            let matched_config = browser_apps.split(',').any(|app| {
+                let app = app.trim().to_ascii_lowercase();
+                !app.is_empty() && (exe_name == app || exe_name == format!("{}.exe", app))
+            });
+
+            // Tự động nhận diện các trình duyệt phổ biến nếu danh sách bị xóa hoặc thiếu
+            let matched_builtin = exe_name.contains("chrome")
+                || exe_name.contains("edge")
+                || exe_name.contains("brave")
+                || exe_name.contains("coccoc")
+                || exe_name.contains("opera")
+                || exe_name.contains("firefox")
+                || exe_name.contains("vivaldi")
+                || exe_name.contains("arc")
+                || exe_name.contains("zen")
+                || exe_name.contains("browser");
+
+            is_browser = matched_config || matched_builtin;
+        }
     }
 
-    let mut path_buf = [0u16; 1024];
-    let mut size = path_buf.len() as u32;
-    let ok = QueryFullProcessImageNameW(process, 0, path_buf.as_mut_ptr(), &mut size);
-    CloseHandle(process);
-
-    let is_browser = if ok != 0 && size > 0 {
-        let full_path = String::from_utf16_lossy(&path_buf[..size as usize]);
-        let exe_name = std::path::Path::new(&full_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-
-        browser_apps.split(',').any(|app| {
-            let app = app.trim().to_ascii_lowercase();
-            !app.is_empty() && (exe_name == app || exe_name == format!("{}.exe", app))
-        })
-    } else {
-        false
-    };
+    // 2. Fallback nếu OpenProcess thất bại (ví dụ trình duyệt chạy quyền Admin hoặc sandbox bảo vệ):
+    // Dùng GetClassNameW kiểm tra window class của cửa sổ foreground (không cần quyền process)
+    if !is_browser {
+        let mut class_buf = [0u16; 256];
+        let len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32);
+        if len > 0 {
+            let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
+            if class_name.contains("Chrome_WidgetWin") || class_name.contains("MozillaWindowClass") {
+                is_browser = true;
+            }
+        }
+    }
 
     LAST_CHECKED_HWND.store(hwnd as isize, Ordering::Relaxed);
     LAST_CHECKED_IS_BROWSER.store(is_browser, Ordering::Relaxed);
@@ -1004,7 +1031,7 @@ unsafe fn is_focused_in_web_content() -> bool {
             // TrÃªn Chrome, Edge, Brave, Cá»‘c Cá»‘c, Opera:
             // Cá»­a sá»• hiá»ƒn thá»‹ ná»™i dung trang web luÃ´n cÃ³ class name chá»©a "RenderWidgetHost"
             // (vÃ­ dá»¥: Chrome_RenderWidgetHostHWND)
-            if class_name.contains("RenderWidgetHost") {
+            if class_name.contains("RenderWidgetHost") || class_name.contains("MozillaContentWindowClass") {
                 return true;
             }
         }
@@ -1018,7 +1045,7 @@ unsafe fn is_focused_in_web_content() -> bool {
 unsafe fn send_transform_batch(
     backspaces: usize,
     text: &str,
-    has_space_before: bool,
+    _has_space_before: bool,
     browser_compatibility: bool,
     browser_apps: &str,
 ) {
@@ -1031,7 +1058,7 @@ unsafe fn send_transform_batch(
     // TrÃ¬nh duyá»‡t tá»± Ä‘á»™ng bÃ´i Ä‘en (inline selection) gá»£i Ã½ URL/tÃ¬m kiáº¿m Ä‘áº§u tiÃªn.
     // Náº¿u chÆ°a cÃ³ dáº¥u cÃ¡ch (!has_space_before) vÃ  khÃ´ng pháº£i trong ná»™i dung web (!is_focused_in_web_content):
     // PhÃ­m Backspace Ä‘áº§u tiÃªn sáº½ xÃ³a vÃ¹ng chá»n gá»£i Ã½ cá»§a trÃ¬nh duyá»‡t, do Ä‘Ã³ cáº§n thÃªm 1 Backspace Ä‘á»ƒ xÃ³a kÃ½ tá»± gá»‘c.
-    let need_omnibox_fix = is_browser && !has_space_before && !is_focused_in_web_content();
+    let need_omnibox_fix = is_browser && !is_focused_in_web_content();
     let total_backspaces = if need_omnibox_fix { backspaces + 1 } else { backspaces };
 
     send_replace_batch(0, total_backspaces, text);

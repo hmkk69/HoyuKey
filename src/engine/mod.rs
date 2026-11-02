@@ -1848,4 +1848,29 @@ mod tests {
         );
         assert_eq!(engine.current_word, "quãng");
     }
+
+    #[test]
+    fn test_thaysa_and_thayas_variants_to_thay() {
+        let mut engine = Engine::new();
+        let config = Config::default();
+
+        // 1. Gõ tháy + a -> thấy
+        assert_eq!(simulate_type(&mut engine, &config, "thaysa"), "thấy");
+        engine.reset();
+
+        // 2. Gõ thay + a + s -> thấy
+        assert_eq!(simulate_type(&mut engine, &config, "thayas"), "thấy");
+        engine.reset();
+
+        // 3. Gõ tha + s + y + a -> thấy
+        assert_eq!(simulate_type(&mut engine, &config, "thasya"), "thấy");
+        engine.reset();
+
+        // 4. Các biến thể khác: maysa -> mấy, caysa -> cấy, baysa -> bấy
+        assert_eq!(simulate_type(&mut engine, &config, "maysa"), "mấy");
+        engine.reset();
+        assert_eq!(simulate_type(&mut engine, &config, "caysa"), "cấy");
+        engine.reset();
+        assert_eq!(simulate_type(&mut engine, &config, "baysa"), "bấy");
+    }
 }

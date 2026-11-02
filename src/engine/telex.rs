@@ -428,8 +428,19 @@ fn handle_vowel_modifier(
                     // (nghĩa là sau đó chỉ có thể là các phụ âm cuối như 't', 'c', 'n', 'p', 'm', 'ng', 'ch'...
                     // ví dụ: 'đot' + 'o' -> 'đôt', 'dong' + 'o' -> 'đông', 'bat' + 'a' -> 'bât', 'viet' + 'e' -> 'viêt'.
                     // Tuyệt đối không nhảy cóc qua nguyên âm khác như 'ngoe' + 'o' -> 'ngoeo'!).
+                    // Ngoại lệ: cặp 'ay' / 'áy' / 'ày' + 'a' -> 'ây' / 'ấy' / 'ầy' (cho phép 'y' ở cuối từ).
                     if key != 'w' {
-                        let has_vowel_after = chars[idx + 1..].iter().any(|&c| decompose_vietnamese_char(c).is_some());
+                        let curr_base = decompose_vietnamese_char(chars[idx]).map(|(b, _, _, _)| b);
+                        let has_vowel_after = chars[idx + 1..].iter().any(|&c| {
+                            if let Some((b, _, _, _)) = decompose_vietnamese_char(c) {
+                                if key == 'a' && curr_base == Some('a') && b == 'y' {
+                                    return false;
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        });
                         if has_vowel_after {
                             continue;
                         }
@@ -714,6 +725,9 @@ pub fn select_tone_vowel_index(chars: &[char], vowel_indices: &[usize], modern_t
             .collect();
         if vowels_str.ends_with("ye") {
             return vowel_indices[2];
+        }
+        if vowels_str.contains("ay") {
+            return vowel_indices[0];
         }
         return vowel_indices[1];
     }

@@ -87,7 +87,7 @@ impl Default for Config {
             auto_caps_sentence: false,
             auto_period_enter: false,
             browser_compatibility: true,
-            browser_apps: "chrome.exe, msedge.exe, brave.exe, coccoc.exe, opera.exe".to_string(),
+            browser_apps: "chrome.exe, msedge.exe, brave.exe, coccoc.exe, opera.exe, opera_gx.exe, firefox.exe, vivaldi.exe, arc.exe, zen.exe".to_string(),
             remember_app_state: false,
             limit_ram: false,
             max_ram_mb: 1,
