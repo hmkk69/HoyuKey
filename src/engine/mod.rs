@@ -132,16 +132,27 @@ impl Engine {
                 self.raw_keys.clear();
                 self.has_transformed = false;
                 self.caret_offset = None;
-                // Nếu người dùng vừa xóa ký tự đầu tiên tại đầu dòng hoặc đầu câu:
-                // Khôi phục lại cờ viết hoa tự động để ký tự gõ tiếp theo vẫn được viết hoa!
-                if self.was_at_line_start {
+                // Khi xóa hết từ trở về rỗng:
+                // 1. Nếu từ này mở đầu dòng hoặc trước đó không có từ nào -> Khôi phục đầu dòng!
+                if self.was_at_line_start || self.last_word_before_space.is_none() {
                     self.at_start_of_line = true;
+                    self.has_typed_in_line = false;
                 }
-                if self.was_at_sentence_start {
+                // 2. Nếu từ này mở đầu câu sau dấu ngắt câu -> Khôi phục đầu câu!
+                if self.was_at_sentence_start || self.saw_sentence_end_punct {
                     self.after_sentence_end = true;
                 }
             } else {
                 self.caret_offset = Some(self.current_word.chars().count());
+            }
+        } else {
+            // Buffer đã rỗng, người dùng đang ấn Backspace xóa lùi tiếp trên dòng
+            if self.last_word_before_space.is_none() {
+                self.at_start_of_line = true;
+                self.has_typed_in_line = false;
+            }
+            if self.saw_sentence_end_punct {
+                self.after_sentence_end = true;
             }
         }
     }
@@ -268,33 +279,36 @@ impl Engine {
             return KeyAction::PassThrough;
         }
 
-        // Bắt đầu một từ mới: xóa lịch sử từ cũ
+        // 3. Xử lý tính năng Tự động viết hoa (Auto Capitalization)
+        let should_capitalize = c.is_alphabetic()
+            && ((config.auto_caps_line && self.at_start_of_line)
+                || (config.auto_caps_sentence && self.after_sentence_end));
+
+        // Bắt đầu một từ mới: xóa lịch sử từ cũ và ghi nhớ vị trí đầu dòng/đầu câu
         if self.current_word.is_empty() {
             self.last_word_before_space = None;
             self.raw_keys.clear();
             self.has_transformed = false;
+            if should_capitalize {
+                self.was_at_line_start = self.at_start_of_line;
+                self.was_at_sentence_start = self.after_sentence_end;
+            } else {
+                self.was_at_line_start = false;
+                self.was_at_sentence_start = false;
+            }
         }
 
         if self.current_word.len() > 30 {
             self.reset();
         }
 
-        // 3. Xử lý tính năng Tự động viết hoa (Auto Capitalization)
-        let should_capitalize = c.is_alphabetic()
-            && ((config.auto_caps_line && self.at_start_of_line)
-                || (config.auto_caps_sentence && self.after_sentence_end));
-
         let was_lowercase = c.is_ascii_lowercase();
         if should_capitalize {
-            self.was_at_line_start = self.at_start_of_line;
-            self.was_at_sentence_start = self.after_sentence_end;
             self.at_start_of_line = false;
             self.after_sentence_end = false;
             self.saw_sentence_end_punct = false;
             c = c.to_uppercase().next().unwrap_or(c);
         } else if c.is_alphabetic() {
-            self.was_at_line_start = false;
-            self.was_at_sentence_start = false;
             self.at_start_of_line = false;
             self.after_sentence_end = false;
             self.saw_sentence_end_punct = false;
@@ -1048,6 +1062,33 @@ mod tests {
             KeyAction::Transform { backspaces: 0, text: "K".to_string() },
             "Enter sau dấu chấm không viết hoa khi chỉ bật auto_caps_sentence!"
         );
+
+        // 6. Kiểm tra gõ nguyên từ "Hello", backspace về hết rồi viết lại vẫn viết hoa chữ H:
+        engine.on_enter();
+        let a_h = engine.process_char('h', &config);
+        assert_eq!(a_h, KeyAction::Transform { backspaces: 0, text: "H".to_string() });
+        engine.process_char('e', &config);
+        engine.process_char('l', &config);
+        engine.process_char('l', &config);
+        engine.process_char('o', &config);
+        assert_eq!(engine.current_word, "Hello");
+        for _ in 0..5 {
+            engine.handle_backspace(false);
+        }
+        assert!(engine.current_word.is_empty());
+        let a_h2 = engine.process_char('h', &config);
+        assert_eq!(a_h2, KeyAction::Transform { backspaces: 0, text: "H".to_string() }, "Gõ lại Hello sau khi backspace hết phải viết hoa!");
+        engine.process_char('e', &config);
+        engine.process_char('l', &config);
+        engine.process_char('l', &config);
+        engine.process_char('o', &config);
+        assert_eq!(engine.current_word, "Hello");
+        for _ in 0..5 {
+            engine.handle_backspace(false);
+        }
+        assert!(engine.current_word.is_empty());
+        let a_h3 = engine.process_char('h', &config);
+        assert_eq!(a_h3, KeyAction::Transform { backspaces: 0, text: "H".to_string() });
     }
 
         #[test]

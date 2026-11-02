@@ -641,21 +641,6 @@ unsafe extern "system" fn low_level_keyboard_proc(
                                 return 1;
                             }
                         }
-                    } else {
-                        // CÃ¡ch 2: Gá»­i yÃªu cáº§u tá»›i dedicated worker thread vá»›i debounce 75ms (0ms hook latency, khÃ´ng spawn thread)
-                        let seq = CARET_REPLACEMENT_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
-                        if let Ok(mut lock) = CARET_REPLACE_QUEUE.lock() {
-                            *lock = Some(CaretReplaceRequest {
-                                seq,
-                                ch,
-                                is_telex,
-                                modern_tone,
-                                free_marking,
-                                smart_english,
-                                simple_telex,
-                            });
-                            CARET_REPLACE_CONDVAR.notify_one();
-                        }
                     }
                 }
             }
@@ -906,9 +891,12 @@ unsafe fn send_replace_batch(deletes: usize, backspaces: usize, text: &str) {
 
 use crate::automation::{GetGUIThreadInfo, GUITHREADINFO};
 
+#[allow(dead_code)]
 static LAST_CHECKED_HWND: AtomicIsize = AtomicIsize::new(0);
+#[allow(dead_code)]
 static LAST_CHECKED_IS_BROWSER: AtomicBool = AtomicBool::new(false);
 
+#[allow(dead_code)]
 unsafe fn is_foreground_browser_app(browser_apps: &str) -> bool {
     let hwnd = GetForegroundWindow();
     if hwnd.is_null() {
@@ -1002,6 +990,7 @@ pub(crate) unsafe fn is_foreground_paused_app(pause_apps: &str) -> bool {
     }
 }
 
+#[allow(dead_code)]
 unsafe fn is_focused_in_web_content() -> bool {
     let hwnd = GetForegroundWindow();
     if hwnd.is_null() {
@@ -1039,23 +1028,17 @@ unsafe fn is_focused_in_web_content() -> bool {
 unsafe fn send_transform_batch(
     backspaces: usize,
     text: &str,
-    has_space_before: bool,
-    browser_compatibility: bool,
-    browser_apps: &str,
+    _has_space_before: bool,
+    _browser_compatibility: bool,
+    _browser_apps: &str,
 ) {
     if backspaces == 0 && text.is_empty() {
         return;
     }
 
-    let is_browser = browser_compatibility && is_foreground_browser_app(browser_apps);
-    // Khi ngÆ°á»i dÃ¹ng gÃµ trÃªn thanh Ä‘á»‹a chá»‰ trÃ¬nh duyá»‡t (Chrome, Edge, Brave, Cá»‘c Cá»‘c, Opera):
-    // TrÃ¬nh duyá»‡t tá»± Ä‘á»™ng bÃ´i Ä‘en (inline selection) gá»£i Ã½ URL/tÃ¬m kiáº¿m Ä‘áº§u tiÃªn.
-    // Náº¿u chÆ°a cÃ³ dáº¥u cÃ¡ch (!has_space_before) vÃ  khÃ´ng pháº£i trong ná»™i dung web (!is_focused_in_web_content):
-    // PhÃ­m Backspace Ä‘áº§u tiÃªn sáº½ xÃ³a vÃ¹ng chá»n gá»£i Ã½ cá»§a trÃ¬nh duyá»‡t, do Ä‘Ã³ cáº§n thÃªm 1 Backspace Ä‘á»ƒ xÃ³a kÃ½ tá»± gá»‘c.
-    let need_omnibox_fix = is_browser && !has_space_before && !is_focused_in_web_content();
-    let total_backspaces = if need_omnibox_fix && backspaces > 0 { backspaces + 1 } else { backspaces };
-
-    send_replace_batch(0, total_backspaces, text);
+    // Gửi chính xác số lượng backspaces cần thiết.
+    // TUYỆT ĐỐI không tự ý cộng thêm backspaces để tránh nuốt mất dấu cách, ký tự mở ngoặc hoặc chữ cái đằng trước.
+    send_replace_batch(0, backspaces, text);
 }
 
 const CF_UNICODETEXT: u32 = 13;
@@ -1079,6 +1062,7 @@ extern "system" {
 
 static CARET_REPLACEMENT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+#[allow(dead_code)]
 struct CaretReplaceRequest {
     seq: u64,
     ch: char,
@@ -1089,51 +1073,14 @@ struct CaretReplaceRequest {
     simple_telex: bool,
 }
 
+#[allow(dead_code)]
 static CARET_REPLACE_QUEUE: Mutex<Option<CaretReplaceRequest>> = Mutex::new(None);
+#[allow(dead_code)]
 static CARET_REPLACE_CONDVAR: std::sync::Condvar = std::sync::Condvar::new();
 
 pub fn init_caret_replacement_worker() {
-    static STARTED: AtomicBool = AtomicBool::new(false);
-    if STARTED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    std::thread::Builder::new()
-        .name("hoyukey-caret-replace".to_string())
-        .spawn(|| {
-            loop {
-                let req = {
-                    let mut lock = CARET_REPLACE_QUEUE.lock().unwrap();
-                    while lock.is_none() {
-                        lock = CARET_REPLACE_CONDVAR.wait(lock).unwrap();
-                    }
-                    // Chá» debounce 30ms: pháº£n há»“i siÃªu tá»‘c, gáº§n nhÆ° tá»©c thÃ¬ khi báº¥m phÃ­m sá»­a dáº¥u
-                    let (new_lock, timeout_res) = CARET_REPLACE_CONDVAR
-                        .wait_timeout(lock, std::time::Duration::from_millis(30))
-                        .unwrap();
-                    lock = new_lock;
-                    if timeout_res.timed_out() {
-                        lock.take()
-                    } else {
-                        continue;
-                    }
-                };
-
-                if let Some(req) = req {
-                    if CARET_REPLACEMENT_SEQ.load(Ordering::SeqCst) == req.seq {
-                        perform_post_type_selection_replacement(
-                            req.ch,
-                            req.is_telex,
-                            req.modern_tone,
-                            req.free_marking,
-                            req.smart_english,
-                            req.simple_telex,
-                        );
-                    }
-                }
-            }
-        })
-        .ok();
+    // Đã vô hiệu hóa Cách 2 (Ctrl+Shift+Left / Ctrl+C) để tránh xung đột cướp clipboard
+    // hoặc vô tình bôi đen nuốt mất dấu cách / chữ cái của người dùng khi đang gõ nhanh.
 }
 
 pub(crate) unsafe fn get_clipboard_text() -> Option<String> {
@@ -1184,6 +1131,7 @@ pub(crate) unsafe fn set_clipboard_text(text: &str) -> bool {
     false
 }
 
+#[allow(dead_code)]
 unsafe fn send_key_combo(vks: &[u16]) {
     let mut inputs = Vec::new();
     for &vk in vks {
@@ -1213,6 +1161,7 @@ unsafe fn send_key_combo(vks: &[u16]) {
     SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32);
 }
 
+#[allow(dead_code)]
 unsafe fn send_single_key(vk: u16) {
     let mut inputs: [INPUT; 2] = std::mem::zeroed();
     inputs[0].r#type = INPUT_KEYBOARD;
@@ -1234,6 +1183,7 @@ unsafe fn send_single_key(vk: u16) {
     SendInput(2, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32);
 }
 
+#[allow(dead_code)]
 fn perform_post_type_selection_replacement(
     ch: char,
     is_telex: bool,
