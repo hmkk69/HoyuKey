@@ -1293,8 +1293,8 @@ mod tests {
 
         // 3. Đổi cửa sổ: không được coi là đầu dòng
         engine.on_window_change();
-        let act_w = engine.process_char('w', &config);
-        assert_eq!(act_w, KeyAction::PassThrough, "Sau khi đổi cửa sổ không được viết hoa chữ!");
+        let act_k = engine.process_char('k', &config);
+        assert_eq!(act_k, KeyAction::PassThrough, "Sau khi đổi cửa sổ không được viết hoa chữ!");
     }
 
         #[test]
