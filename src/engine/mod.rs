@@ -127,7 +127,7 @@ impl Engine {
     /// Xử lý phím Backspace:
     /// Đồng bộ xóa ký tự trong bộ đệm và cho phím Backspace vật lý đi qua tự nhiên.
     /// Nếu vừa gõ xong từ rồi gõ space (ví dụ "dụ "), ấn Backspace xóa space sẽ khôi phục từ để có thể gõ tiếp.
-    pub fn handle_backspace(&mut self, _simple_telex: bool) {
+    pub fn handle_backspace(&mut self, simple_telex: bool) {
         if !self.current_word.is_empty() {
             if let Some(offset) = self.caret_offset {
                 let len = self.current_word.chars().count();
@@ -168,7 +168,12 @@ impl Engine {
                 self.spaces_after_word -= 1;
             } else if self.spaces_after_word == 1 {
                 self.spaces_after_word = 0;
-                if let Some(last_word) = self.line_words.pop() {
+                if simple_telex {
+                    if self.line_words.pop().is_none() {
+                        self.at_start_of_line = true;
+                        self.has_typed_in_line = false;
+                    }
+                } else if let Some(last_word) = self.line_words.pop() {
                     self.current_word = last_word.word;
                     self.raw_keys = last_word.raw;
                     self.has_transformed = last_word.transformed;
@@ -179,6 +184,11 @@ impl Engine {
                     self.has_space_before = false;
                     self.last_word_before_space = self.line_words.last().map(|w| (w.word.clone(), w.raw.clone(), w.transformed));
                 } else {
+                    self.at_start_of_line = true;
+                    self.has_typed_in_line = false;
+                }
+            } else if simple_telex {
+                if self.line_words.pop().is_none() {
                     self.at_start_of_line = true;
                     self.has_typed_in_line = false;
                 }
