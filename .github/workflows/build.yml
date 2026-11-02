@@ -202,8 +202,19 @@ jobs:
             | File | Nền tảng | Mô tả |
             | :--- | :--- | :--- |
             | `HoyuKey.exe` | Windows x64 | Chạy trực tiếp (Portable) |
-            | `HoyuKey.deb` | Ubuntu / Debian / Linux Mint | Cài đặt 1 chạm (Nhấp đúp chuột để cài) |
-            | `HoyuKey.tar.gz` | Arch Linux / Fedora / Khác | Giải nén và chạy `./install.sh` |
+            | `HoyuKey.deb` | Ubuntu / Debian / Linux Mint | Gói cài đặt .deb |
+            | `HoyuKey.tar.gz` | Arch Linux / Fedora / Khác | Gói nén cài đặt |
+
+            ---
+            ### Hướng dẫn cài đặt trên Windows:
+            - Tải file `HoyuKey.exe` về máy và mở chạy trực tiếp.
+            - **Tránh bị Windows Security chặn nhầm**: Do phần mềm chưa có chữ ký số, Windows Security có thể nhận diện nhầm. Để phần mềm và tính năng tự động cập nhật hoạt động ổn định:
+              1. Tạo một thư mục riêng (ví dụ: `C:\HoyuKey` hoặc `D:\HoyuKey`) và đặt file `HoyuKey.exe` vào đó.
+              2. Thêm thư mục trên vào danh sách loại trừ (Exclusion) của Windows:
+                 - Mở **Windows Security** -> chọn **Virus & threat protection**.
+                 - Tại mục **Virus & threat protection settings**, nhấn **Manage settings**.
+                 - Cuộn xuống mục **Exclusions**, nhấn **Add or remove exclusions**.
+                 - Nhấn **Add an exclusion** -> chọn **Folder** rồi chọn thư mục bạn vừa tạo.
 
             ---
             ### Hướng dẫn cài đặt trên Linux:
@@ -218,16 +229,6 @@ jobs:
               ./install.sh
               ```
             - Sau khi cài đặt xong, mở **Fcitx5 Configuration** và thêm **HoyuKey** vào danh sách bộ gõ.
-
-            ---
-            ### Hướng dẫn tránh bị Windows Security chặn nhầm:
-            Do phần mềm chưa có chữ ký số, Windows Security có thể nhận diện nhầm. Để phần mềm và tính năng tự động cập nhật hoạt động ổn định:
-            1. Tạo một thư mục riêng (ví dụ: C:\HoyuKey hoặc D:\HoyuKey) và đặt file HoyuKey.exe vào đó.
-            2. Thêm thư mục trên vào danh sách loại trừ (Exclusion) của Windows:
-               - Mở **Windows Security** -> chọn **Virus & threat protection**.
-               - Tại mục **Virus & threat protection settings**, nhấn **Manage settings**.
-               - Cuộn xuống mục **Exclusions**, nhấn **Add or remove exclusions**.
-               - Nhấn **Add an exclusion** -> chọn **Folder** rồi chọn thư mục bạn vừa tạo.
           prerelease: true
           draft: false
           files: |
