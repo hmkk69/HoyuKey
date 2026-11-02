@@ -711,9 +711,9 @@ pub fn toggle_vietnamese_mode() {
 
     if notify_toggle {
         let msg = if enabled {
-            "ÄÃ£ báº­t Tiáº¿ng Viá»‡t"
+            "Đã bật Tiếng Việt"
         } else {
-            "ÄÃ£ táº¯t Tiáº¿ng Viá»‡t"
+            "Đã tắt Tiếng Việt"
         };
         crate::show_notification("HoyuKey", msg);
     }
