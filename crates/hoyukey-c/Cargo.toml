@@ -1,0 +1,12 @@
+[package]
+name = "hoyukey-c"
+version = "1.0.0"
+edition = "2021"
+authors = ["Hoyuuna"]
+description = "C ABI FFI bridge for HoyuKey Vietnamese input engine"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+hoyukey-core = { path = "../hoyukey-core" }

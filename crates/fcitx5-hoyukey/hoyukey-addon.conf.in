@@ -1,0 +1,12 @@
+[Addon]
+Name=HoyuKey Vietnamese Input Method
+Comment=Ultra-fast, modern Vietnamese input method powered by Rust
+Category=InputMethod
+Type=SharedLibrary
+Library=hoyukey
+Version=1.0.0
+OnDemand=True
+Configurable=True
+
+[Addon/Dependencies]
+0=core

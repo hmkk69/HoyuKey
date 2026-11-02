@@ -11,6 +11,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hoyukey-c"
+version = "1.0.0"
+dependencies = [
+ "hoyukey-core",
+]
+
+[[package]]
+name = "hoyukey-cli"
+version = "1.0.0"
+dependencies = [
+ "hoyukey-core",
+]
+
+[[package]]
 name = "hoyukey-core"
 version = "1.0.0"
 

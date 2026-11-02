@@ -1,0 +1,13 @@
+[package]
+name = "hoyukey-cli"
+version = "1.0.0"
+edition = "2021"
+authors = ["Hoyuuna"]
+description = "Interactive CLI Vietnamese typing tester for HoyuKey"
+
+[[bin]]
+name = "hoyukey-cli"
+path = "src/main.rs"
+
+[dependencies]
+hoyukey-core = { path = "../hoyukey-core" }

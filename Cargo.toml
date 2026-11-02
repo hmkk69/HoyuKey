@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "crates/hoyukey-core",
+    "crates/hoyukey-c",
+    "crates/hoyukey-cli",
 ]
 
 [package]
