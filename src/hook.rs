@@ -579,7 +579,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             };
 
             // KÃ­ch hoáº¡t sá»­a dáº¥u táº¡i con trá» CHá»ˆ KHI ngÆ°á»i dÃ¹ng vá»«a click chuá»™t / Ä‘iá»u hÆ°á»›ng con trá» (caret_needs_check)
-            if enabled && dynamic_caret && is_empty && caret_needs_check && !at_start_of_line && !is_after_whitespace {
+            if false && enabled && dynamic_caret && is_empty && caret_needs_check && !at_start_of_line && !is_after_whitespace {
                 // CHá»ˆ cÃ¡c phÃ­m dáº¥u thanh (s, f, r, x, j, z) má»›i lÃ  candidate!
                 // TUYá»†T Äá»I khÃ´ng bao gá»“m w, a, e, o, d vÃ¬ Ä‘Ã³ lÃ  cÃ¡c chá»¯ cÃ¡i báº¯t Ä‘áº§u tá»« thÃ´ng thÆ°á»ng.
                 let is_candidate_key = if is_telex {
@@ -594,6 +594,12 @@ unsafe extern "system" fn low_level_keyboard_proc(
                     let caret_word_ctx = crate::automation::get_cached_caret_word();
 
                     if let Some(ctx) = caret_word_ctx {
+                        if !ctx.post_word.is_empty() {
+                            if let Ok(mut state) = GLOBAL_STATE.lock() {
+                                state.engine.caret_needs_check = false;
+                            }
+                            crate::automation::clear_cached_caret_word();
+                        } else {
                         let target_word = &ctx.full_word;
 
                         let transformed = if is_telex {
@@ -636,21 +642,10 @@ unsafe extern "system" fn low_level_keyboard_proc(
                                 return 1;
                             }
                         }
+                        }
                     } else {
                         // CÃ¡ch 2: Gá»­i yÃªu cáº§u tá»›i dedicated worker thread vá»›i debounce 75ms (0ms hook latency, khÃ´ng spawn thread)
-                        let seq = CARET_REPLACEMENT_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
-                        if let Ok(mut lock) = CARET_REPLACE_QUEUE.lock() {
-                            *lock = Some(CaretReplaceRequest {
-                                seq,
-                                ch,
-                                is_telex,
-                                modern_tone,
-                                free_marking,
-                                smart_english,
-                                simple_telex,
-                            });
-                            CARET_REPLACE_CONDVAR.notify_one();
-                        }
+                        // Method 2 (async) disabled for stability: do nothing.
                     }
                 }
             }
@@ -866,7 +861,16 @@ unsafe fn send_replace_batch(deletes: usize, backspaces: usize, text: &str) {
 
     // 4. Náº¿u trÆ°á»›c Ä‘Ã³ Ä‘Ã£ xÃ³a pháº§n Ä‘uÃ´i báº±ng Delete (con trá» á»Ÿ giá»¯a tá»«):
     // Gá»­i láº¡i Ä‘Ãºng sá»‘ phÃ­m Left Arrow Ä‘á»ƒ Ä‘Æ°a con trá» quay vá» Ä‘Ãºng vá»‹ trÃ­ giá»¯a tá»« ban Ä‘áº§u!
-    for _ in 0..deletes {
+    // Sá»‘ phÃ­m cáº§n lÃ¹i = Ä‘á»™ dÃ i chuá»—i má»›i - sá»‘ kÃ½ tá»± pháº§n Ä‘áº§u (backspaces), KHÃ”NG pháº£i sá»‘ kÃ½ tá»± Ä‘uÃ´i cÅ© (deletes),
+    // Ä‘á»ƒ trÃ¡nh lÃ¹i quÃ¡ nhiá»u khi biáº¿n Ä‘á»•i lÃ m thay Ä‘á»•i Ä‘á»™ dÃ i tá»« (vÃ­ dá»¥ "oo" -> "Ã´").
+    // Chỉ gửi Left Arrow khi con trỏ đang ở giữa từ (deletes > 0). 
+    // Nếu gõ bình thường ở cuối từ (deletes == 0), KHÔNG được gửi Left Arrow vì caret phải ở cuối từ mới.
+    let restore_left = if deletes > 0 {
+        text.chars().count().saturating_sub(backspaces)
+    } else {
+        0
+    };
+    for _ in 0..restore_left {
         let mut down: INPUT = std::mem::zeroed();
         down.r#type = INPUT_KEYBOARD;
         down.Anonymous.ki = KEYBDINPUT {
@@ -1043,10 +1047,6 @@ unsafe fn send_transform_batch(
     }
 
     let is_browser = browser_compatibility && is_foreground_browser_app(browser_apps);
-    // Khi ngÆ°á»i dÃ¹ng gÃµ trÃªn thanh Ä‘á»‹a chá»‰ trÃ¬nh duyá»‡t (Chrome, Edge, Brave, Cá»‘c Cá»‘c, Opera):
-    // TrÃ¬nh duyá»‡t tá»± Ä‘á»™ng bÃ´i Ä‘en (inline selection) gá»£i Ã½ URL/tÃ¬m kiáº¿m Ä‘áº§u tiÃªn.
-    // Náº¿u chÆ°a cÃ³ dáº¥u cÃ¡ch (!has_space_before) vÃ  khÃ´ng pháº£i trong ná»™i dung web (!is_focused_in_web_content):
-    // PhÃ­m Backspace Ä‘áº§u tiÃªn sáº½ xÃ³a vÃ¹ng chá»n gá»£i Ã½ cá»§a trÃ¬nh duyá»‡t, do Ä‘Ã³ cáº§n thÃªm 1 Backspace Ä‘á»ƒ xÃ³a kÃ½ tá»± gá»‘c.
     let need_omnibox_fix = is_browser && !has_space_before && !is_focused_in_web_content();
     let total_backspaces = if need_omnibox_fix { backspaces + 1 } else { backspaces };
 

@@ -79,7 +79,7 @@ impl Default for Config {
             auto_restore: true,
             free_marking: true,
             smart_english: true,
-            modify_tone_in_word: true,
+            modify_tone_in_word: false,
             simple_telex: false,
             dynamic_caret: false,
             start_with_windows: false,
