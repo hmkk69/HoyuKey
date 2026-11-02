@@ -194,41 +194,31 @@ jobs:
           name: "HoyuKey v${{ needs.version.outputs.version }}"
           body: |
             HoyuKey v${{ needs.version.outputs.version }}
-            (Phiên bản đa nền tảng được build tự động)
 
             Phiên bản: ${{ needs.version.outputs.version }}
-            Commit: ${{ github.sha }} (Build #${{ needs.version.outputs.patch }})
+            Commit: ${{ github.sha }}
 
             | File | Nền tảng | Mô tả |
             | :--- | :--- | :--- |
-            | `HoyuKey.exe` | Windows x64 | Chạy trực tiếp (Portable) |
-            | `HoyuKey.deb` | Ubuntu / Debian / Linux Mint | Gói cài đặt .deb |
-            | `HoyuKey.tar.gz` | Arch Linux / Fedora / Khác | Gói nén cài đặt |
+            | `HoyuKey.exe` | Windows | Chạy trực tiếp |
+            | `HoyuKey.deb` | Ubuntu, Debian, Linux Mint | Gói cài đặt |
+            | `HoyuKey.tar.gz` | Arch Linux, Fedora, distro khác | Cài đặt bằng script |
 
             ---
             ### Hướng dẫn cài đặt trên Windows:
-            - Tải file `HoyuKey.exe` về máy và mở chạy trực tiếp.
-            - **Tránh bị Windows Security chặn nhầm**: Do phần mềm chưa có chữ ký số, Windows Security có thể nhận diện nhầm. Để phần mềm và tính năng tự động cập nhật hoạt động ổn định:
-              1. Tạo một thư mục riêng (ví dụ: `C:\HoyuKey` hoặc `D:\HoyuKey`) và đặt file `HoyuKey.exe` vào đó.
-              2. Thêm thư mục trên vào danh sách loại trừ (Exclusion) của Windows:
-                 - Mở **Windows Security** -> chọn **Virus & threat protection**.
-                 - Tại mục **Virus & threat protection settings**, nhấn **Manage settings**.
-                 - Cuộn xuống mục **Exclusions**, nhấn **Add or remove exclusions**.
-                 - Nhấn **Add an exclusion** -> chọn **Folder** rồi chọn thư mục bạn vừa tạo.
+            Tải `HoyuKey.exe` về và mở chạy trực tiếp.
+
+            Nếu Windows Security chặn nhầm do phần mềm chưa có chữ ký số:
+            1. Cho `HoyuKey.exe` vào một thư mục riêng (ví dụ: `C:\HoyuKey` hoặc `D:\HoyuKey`).
+            2. Mở **Windows Security** -> chọn **Virus & threat protection**.
+            3. Tại mục **Virus & threat protection settings**, chọn **Manage settings**.
+            4. Cuộn xuống mục **Exclusions**, chọn **Add or remove exclusions** rồi thêm thư mục vừa tạo.
 
             ---
             ### Hướng dẫn cài đặt trên Linux:
-            - **Với Ubuntu / Debian / Linux Mint**:
-              Tải file `HoyuKey.deb`, nhấp đúp chuột vào file rồi chọn **Install** (hoặc mở terminal chạy `sudo dpkg -i HoyuKey.deb`).
-            - **Với Arch Linux / Fedora / các bản phân phối khác**:
-              Tải file `HoyuKey.tar.gz`, giải nén và chạy:
-              ```bash
-              tar -xzf HoyuKey.tar.gz
-              cd HoyuKey-archive
-              chmod +x install.sh
-              ./install.sh
-              ```
-            - Sau khi cài đặt xong, mở **Fcitx5 Configuration** và thêm **HoyuKey** vào danh sách bộ gõ.
+            - Ubuntu, Debian, Linux Mint: Nhấp đúp vào `HoyuKey.deb` để cài (hoặc chạy lệnh `sudo dpkg -i HoyuKey.deb`).
+            - Arch Linux, Fedora, distro khác: Giải nén `HoyuKey.tar.gz` rồi chạy `./install.sh`.
+            - Cài xong, mở cấu hình Fcitx5 và thêm HoyuKey vào danh sách bộ gõ.
           prerelease: true
           draft: false
           files: |
