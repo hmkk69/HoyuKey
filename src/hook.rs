@@ -1101,7 +1101,7 @@ pub(crate) unsafe fn get_clipboard_text() -> Option<String> {
     None
 }
 
-unsafe fn set_clipboard_text(text: &str) -> bool {
+pub(crate) unsafe fn set_clipboard_text(text: &str) -> bool {
     for _ in 0..8 {
         if OpenClipboard(null_mut()) != 0 {
             EmptyClipboard();

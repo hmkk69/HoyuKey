@@ -70,12 +70,14 @@ static RAM_LIMIT_ANIM: AtomicU32 = AtomicU32::new(0);
 // Quản lý tìm kiếm trên Dashboard
 static SEARCH_QUERY: Mutex<String> = Mutex::new(String::new());
 static SEARCH_FOCUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SEARCH_SELECTED_ALL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SEARCH_ANIM_PROGRESS: AtomicU32 = AtomicU32::new(1000);
+static SEARCH_ENGINE: std::sync::LazyLock<Mutex<crate::engine::Engine>> = std::sync::LazyLock::new(|| Mutex::new(crate::engine::Engine::new()));
+const TIMER_ID_CARET: usize = 1002;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SearchItemKind {
     Toggle,
-    InputMethodPill,
-    SwitchKeyPill,
     Action(u8),
 }
 
@@ -103,7 +105,7 @@ static ALL_SEARCH_ITEMS: &[SearchSettingItem] = &[
         desc: "Chọn phương thức gõ Telex hoặc VNI",
         category: "Cài đặt đánh máy",
         keywords: "kieu go telex vni phuong thuc input method",
-        kind: SearchItemKind::InputMethodPill,
+        kind: SearchItemKind::Action(1),
     },
     SearchSettingItem {
         id: 3,
@@ -207,7 +209,7 @@ static ALL_SEARCH_ITEMS: &[SearchSettingItem] = &[
         desc: "Phím tắt nhanh chuyển chế độ V / E (Ctrl+Shift hoặc Alt+Z)",
         category: "Cài đặt HoyuKey",
         keywords: "phim tat switch key ctrl shift alt z chuyen che do hotkey",
-        kind: SearchItemKind::SwitchKeyPill,
+        kind: SearchItemKind::Action(2),
     },
     SearchSettingItem {
         id: 16,
@@ -263,7 +265,7 @@ static ALL_SEARCH_ITEMS: &[SearchSettingItem] = &[
         desc: "Tìm kiếm và tải về phiên bản mới nhất từ máy chủ GitHub",
         category: "Giới thiệu",
         keywords: "kiem tra cap nhat ngay check updates now check update tai ve",
-        kind: SearchItemKind::Action(99),
+        kind: SearchItemKind::Action(3),
     },
 ];
 
@@ -356,80 +358,119 @@ fn get_item_toggle_progress(item_id: u32) -> f32 {
     1.0 - (1.0 - p_norm).powi(3)
 }
 
+unsafe fn measure_gdip_text_width(graphics: *mut GpGraphics, font: *mut GpFont, text: &str) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+    let wide = to_wide(text);
+    let rect = RectF {
+        X: 0.0,
+        Y: 0.0,
+        Width: 2000.0,
+        Height: 100.0,
+    };
+    let mut bound_box = RectF {
+        X: 0.0,
+        Y: 0.0,
+        Width: 0.0,
+        Height: 0.0,
+    };
+    let mut format: *mut GpStringFormat = null_mut();
+    GdipCreateStringFormat(0x00001000, 0, &mut format);
+    GdipMeasureString(
+        graphics,
+        wide.as_ptr(),
+        wide.len() as i32 - 1,
+        font,
+        &rect,
+        format,
+        &mut bound_box,
+        null_mut(),
+        null_mut(),
+    );
+    if !format.is_null() {
+        GdipDeleteStringFormat(format);
+    }
+    bound_box.Width
+}
+
+unsafe fn truncate_text_to_width(graphics: *mut GpGraphics, font: *mut GpFont, text: &str, max_w: f32) -> String {
+    let current_w = measure_gdip_text_width(graphics, font, text);
+    if current_w <= max_w {
+        return text.to_string();
+    }
+    let ellipsis = "...";
+    let mut truncated = String::new();
+    for ch in text.chars() {
+        let mut test_str = truncated.clone();
+        test_str.push(ch);
+        test_str.push_str(ellipsis);
+        if measure_gdip_text_width(graphics, font, &test_str) > max_w {
+            break;
+        }
+        truncated.push(ch);
+    }
+    truncated.push_str(ellipsis);
+    truncated
+}
+
 fn handle_search_item_click(item_id: u32, hwnd: HWND) {
     match item_id {
         1 => {
             crate::hook::toggle_vietnamese_mode();
         }
         2 => {
-            let mut state = GLOBAL_STATE.lock().unwrap();
-            state.config.input_method = match state.config.input_method {
-                InputMethod::Telex => InputMethod::Vni,
-                InputMethod::Vni => InputMethod::Telex,
-            };
-            let is_vni = state.config.input_method == InputMethod::Vni;
-            INPUT_METHOD_PROGRESS.store(if is_vni { 1000 } else { 0 }, Ordering::SeqCst);
-            state.config.save();
+            start_page_transition(hwnd, 1, 1);
+            return;
         }
         3 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.free_marking = !state.config.free_marking;
-            FREE_MARKING_PROGRESS.store(if state.config.free_marking { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         4 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.modern_tone = !state.config.modern_tone;
-            MODERN_TONE_PROGRESS.store(if state.config.modern_tone { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         5 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.smart_english = !state.config.smart_english;
-            SMART_ENGLISH_PROGRESS.store(if state.config.smart_english { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         6 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.dynamic_caret = !state.config.dynamic_caret;
-            DYNAMIC_CARET_PROGRESS.store(if state.config.dynamic_caret { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         7 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.simple_telex = !state.config.simple_telex;
-            SIMPLE_TELEX_PROGRESS.store(if state.config.simple_telex { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         8 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.auto_caps_line = !state.config.auto_caps_line;
-            AUTO_CAPS_LINE_PROGRESS.store(if state.config.auto_caps_line { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         9 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.auto_caps_sentence = !state.config.auto_caps_sentence;
-            AUTO_CAPS_SENTENCE_PROGRESS.store(if state.config.auto_caps_sentence { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         10 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.auto_period_enter = !state.config.auto_period_enter;
-            AUTO_PERIOD_ENTER_PROGRESS.store(if state.config.auto_period_enter { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         11 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.auto_restore = !state.config.auto_restore;
-            AUTO_RESTORE_PROGRESS.store(if state.config.auto_restore { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         12 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.browser_compatibility = !state.config.browser_compatibility;
-            BROWSER_COMPAT_PROGRESS.store(if state.config.browser_compatibility { 1000 } else { 0 }, Ordering::SeqCst);
-            BROWSER_INPUT_ANIM.store(if state.config.browser_compatibility { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         13 => {
@@ -439,62 +480,48 @@ fn handle_search_item_click(item_id: u32, hwnd: HWND) {
         14 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.remember_app_state = !state.config.remember_app_state;
-            REMEMBER_APP_PROGRESS.store(if state.config.remember_app_state { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         15 => {
-            let mut state = GLOBAL_STATE.lock().unwrap();
-            state.config.switch_key = match state.config.switch_key {
-                SwitchKey::CtrlShift => SwitchKey::AltZ,
-                SwitchKey::AltZ => SwitchKey::CtrlShift,
-            };
-            let is_alt_z = state.config.switch_key == SwitchKey::AltZ;
-            SWITCH_KEY_PROGRESS.store(if is_alt_z { 1000 } else { 0 }, Ordering::SeqCst);
-            state.config.save();
+            start_page_transition(hwnd, 2, 1);
+            return;
         }
         16 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.start_with_windows = !state.config.start_with_windows;
             let val = state.config.start_with_windows;
-            START_WITH_WINDOWS_PROGRESS.store(if val { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
             crate::autostart::set_autostart(val);
         }
         17 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.notify_on_startup = !state.config.notify_on_startup;
-            NOTIFY_STARTUP_PROGRESS.store(if state.config.notify_on_startup { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         18 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.notify_on_toggle = !state.config.notify_on_toggle;
-            NOTIFY_TOGGLE_PROGRESS.store(if state.config.notify_on_toggle { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         19 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.auto_check_updates = !state.config.auto_check_updates;
-            AUTO_CHECK_UPDATES_PROGRESS.store(if state.config.auto_check_updates { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         20 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.update_prerelease = !state.config.update_prerelease;
-            UPDATE_PRERELEASE_PROGRESS.store(if state.config.update_prerelease { 1000 } else { 0 }, Ordering::SeqCst);
             state.config.save();
         }
         21 => {
             let mut state = GLOBAL_STATE.lock().unwrap();
             state.config.limit_ram = !state.config.limit_ram;
-            let val = state.config.limit_ram;
-            RAM_LIMIT_PROGRESS.store(if val { 1000 } else { 0 }, Ordering::SeqCst);
-            RAM_LIMIT_ANIM.store(if val { 1000 } else { 0 }, Ordering::SeqCst);
             crate::apply_ram_limiter(&state.config);
             state.config.save();
         }
         22 => {
-            crate::updater::start_checking_update(hwnd);
+            start_page_transition(hwnd, 3, 1);
+            return;
         }
         _ => {}
     }
@@ -931,6 +958,7 @@ unsafe extern "system" fn settings_wnd_proc(
                 advance_anim(if config.remember_app_state { 1000 } else { 0 }, &REMEMBER_APP_PROGRESS);
                 advance_anim(if config.limit_ram { 1000 } else { 0 }, &RAM_LIMIT_PROGRESS);
                 advance_anim(if config.limit_ram { 1000 } else { 0 }, &RAM_LIMIT_ANIM);
+                advance_anim(1000, &SEARCH_ANIM_PROGRESS);
 
                 // 3. Easing cuộn nội dung mượt mà 60 FPS (tự động kẹp theo max_scroll động)
                 let page = CURRENT_PAGE.load(Ordering::SeqCst);
@@ -973,6 +1001,10 @@ unsafe extern "system" fn settings_wnd_proc(
                 if !still_animating {
                     KillTimer(hwnd, TIMER_ID_ANIM);
                 }
+            } else if wparam as usize == TIMER_ID_CARET {
+                if CURRENT_PAGE.load(Ordering::SeqCst) == 0 && SEARCH_FOCUSED.load(Ordering::SeqCst) {
+                    InvalidateRect(hwnd, null_mut(), 0);
+                }
             }
             0
         }
@@ -1009,29 +1041,61 @@ unsafe extern "system" fn settings_wnd_proc(
         WM_KEYDOWN => {
             let page = CURRENT_PAGE.load(Ordering::SeqCst);
             if page == 0 && SEARCH_FOCUSED.load(Ordering::SeqCst) {
-                if wparam as usize == 0x56 /* 'V' */ {
-                    let ctrl = (GetKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
-                    if ctrl {
-                        if let Some(text) = unsafe { crate::hook::get_clipboard_text() } {
-                            let mut q = SEARCH_QUERY.lock().unwrap();
-                            for ch in text.chars() {
-                                if !ch.is_control() && q.chars().count() < 40 {
-                                    q.push(ch);
-                                }
-                            }
-                            drop(q);
-                            SCROLL_Y.store(0, Ordering::SeqCst);
-                            TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
-                            InvalidateRect(hwnd, null_mut(), 0);
-                            return 0;
-                        }
-                    }
-                } else if wparam as usize == VK_DELETE as usize {
+                let ctrl = (GetKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
+                let vk = wparam as usize;
+
+                if ctrl && vk == 0x41 /* 'A' */ {
+                    SEARCH_SELECTED_ALL.store(true, Ordering::SeqCst);
+                    InvalidateRect(hwnd, null_mut(), 0);
+                    return 0;
+                } else if ctrl && vk == 0x43 /* 'C' */ {
+                    let q = SEARCH_QUERY.lock().unwrap().clone();
+                    unsafe { crate::hook::set_clipboard_text(&q); }
+                    return 0;
+                } else if ctrl && vk == 0x58 /* 'X' */ {
                     let mut q = SEARCH_QUERY.lock().unwrap();
+                    unsafe { crate::hook::set_clipboard_text(&q); }
                     q.clear();
+                    SEARCH_ENGINE.lock().unwrap().reset();
+                    SEARCH_SELECTED_ALL.store(false, Ordering::SeqCst);
                     drop(q);
+                    SEARCH_ANIM_PROGRESS.store(0, Ordering::SeqCst);
                     SCROLL_Y.store(0, Ordering::SeqCst);
                     TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
+                    SetTimer(hwnd, TIMER_ID_ANIM, 16, None);
+                    InvalidateRect(hwnd, null_mut(), 0);
+                    return 0;
+                } else if ctrl && vk == 0x56 /* 'V' */ {
+                    if let Some(text) = unsafe { crate::hook::get_clipboard_text() } {
+                        let mut q = SEARCH_QUERY.lock().unwrap();
+                        let was_sel = SEARCH_SELECTED_ALL.swap(false, Ordering::SeqCst);
+                        if was_sel {
+                            q.clear();
+                        }
+                        for ch in text.chars() {
+                            if !ch.is_control() && q.chars().count() < 40 {
+                                q.push(ch);
+                            }
+                        }
+                        SEARCH_ENGINE.lock().unwrap().reset();
+                        drop(q);
+                        SEARCH_ANIM_PROGRESS.store(0, Ordering::SeqCst);
+                        SCROLL_Y.store(0, Ordering::SeqCst);
+                        TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
+                        SetTimer(hwnd, TIMER_ID_ANIM, 16, None);
+                        InvalidateRect(hwnd, null_mut(), 0);
+                        return 0;
+                    }
+                } else if vk == VK_DELETE as usize {
+                    let mut q = SEARCH_QUERY.lock().unwrap();
+                    q.clear();
+                    SEARCH_ENGINE.lock().unwrap().reset();
+                    SEARCH_SELECTED_ALL.store(false, Ordering::SeqCst);
+                    drop(q);
+                    SEARCH_ANIM_PROGRESS.store(0, Ordering::SeqCst);
+                    SCROLL_Y.store(0, Ordering::SeqCst);
+                    TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
+                    SetTimer(hwnd, TIMER_ID_ANIM, 16, None);
                     InvalidateRect(hwnd, null_mut(), 0);
                     return 0;
                 }
@@ -1042,41 +1106,108 @@ unsafe extern "system" fn settings_wnd_proc(
             let page = CURRENT_PAGE.load(Ordering::SeqCst);
             if page == 0 && SEARCH_FOCUSED.load(Ordering::SeqCst) {
                 let ch_code = wparam as u16;
+                let was_selected_all = SEARCH_SELECTED_ALL.swap(false, Ordering::SeqCst);
+
                 if ch_code == 0x08 { // Backspace
-                    let mut q = SEARCH_QUERY.lock().unwrap();
-                    q.pop();
-                    drop(q);
+                    if was_selected_all {
+                        let mut q = SEARCH_QUERY.lock().unwrap();
+                        q.clear();
+                        SEARCH_ENGINE.lock().unwrap().reset();
+                    } else {
+                        let (simple_telex, enabled) = {
+                            let state = GLOBAL_STATE.lock().unwrap();
+                            (state.config.simple_telex, state.config.enabled)
+                        };
+                        if enabled {
+                            let mut eng = SEARCH_ENGINE.lock().unwrap();
+                            eng.handle_backspace(simple_telex);
+                        }
+                        let mut q = SEARCH_QUERY.lock().unwrap();
+                        q.pop();
+                    }
+                    SEARCH_ANIM_PROGRESS.store(0, Ordering::SeqCst);
                     SCROLL_Y.store(0, Ordering::SeqCst);
                     TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
+                    SetTimer(hwnd, TIMER_ID_ANIM, 16, None);
                     InvalidateRect(hwnd, null_mut(), 0);
                     return 0;
                 } else if ch_code == 0x7F { // Ctrl + Backspace
                     let mut q = SEARCH_QUERY.lock().unwrap();
                     q.clear();
-                    drop(q);
+                    SEARCH_ENGINE.lock().unwrap().reset();
+                    SEARCH_ANIM_PROGRESS.store(0, Ordering::SeqCst);
                     SCROLL_Y.store(0, Ordering::SeqCst);
                     TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
+                    SetTimer(hwnd, TIMER_ID_ANIM, 16, None);
                     InvalidateRect(hwnd, null_mut(), 0);
                     return 0;
                 } else if ch_code == 0x0D || ch_code == 0x1B { // Enter or Esc
                     if ch_code == 0x1B {
                         let mut q = SEARCH_QUERY.lock().unwrap();
                         q.clear();
+                        SEARCH_ENGINE.lock().unwrap().reset();
                     }
                     SEARCH_FOCUSED.store(false, Ordering::SeqCst);
+                    SEARCH_ANIM_PROGRESS.store(0, Ordering::SeqCst);
                     SCROLL_Y.store(0, Ordering::SeqCst);
                     TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
+                    SetTimer(hwnd, TIMER_ID_ANIM, 16, None);
                     InvalidateRect(hwnd, null_mut(), 0);
                     return 0;
                 } else if ch_code >= 32 {
                     if let Some(ch) = char::from_u32(ch_code as u32) {
+                        let config = GLOBAL_STATE.lock().unwrap().config.clone();
+                        let mut eng = SEARCH_ENGINE.lock().unwrap();
                         let mut q = SEARCH_QUERY.lock().unwrap();
-                        if q.chars().count() < 40 {
-                            q.push(ch);
+
+                        if was_selected_all {
+                            q.clear();
+                            eng.reset();
                         }
+
+                        if config.enabled {
+                            let action = eng.process_char(ch, &config);
+                            match action {
+                                crate::engine::KeyAction::PassThrough => {
+                                    if q.chars().count() < 40 {
+                                        q.push(ch);
+                                    }
+                                }
+                                crate::engine::KeyAction::Transform { backspaces, text } => {
+                                    for _ in 0..backspaces {
+                                        q.pop();
+                                    }
+                                    if q.chars().count() + text.chars().count() <= 40 {
+                                        q.push_str(&text);
+                                    }
+                                }
+                                crate::engine::KeyAction::TransformCaret { backspaces, text, .. } => {
+                                    for _ in 0..backspaces {
+                                        q.pop();
+                                    }
+                                    if q.chars().count() + text.chars().count() <= 40 {
+                                        q.push_str(&text);
+                                    }
+                                }
+                                crate::engine::KeyAction::Reset => {
+                                    q.clear();
+                                }
+                                crate::engine::KeyAction::Backspace => {
+                                    q.pop();
+                                }
+                            }
+                        } else {
+                            if q.chars().count() < 40 {
+                                q.push(ch);
+                            }
+                        }
+
                         drop(q);
+                        drop(eng);
+                        SEARCH_ANIM_PROGRESS.store(0, Ordering::SeqCst);
                         SCROLL_Y.store(0, Ordering::SeqCst);
                         TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
+                        SetTimer(hwnd, TIMER_ID_ANIM, 16, None);
                         InvalidateRect(hwnd, null_mut(), 0);
                         return 0;
                     }
@@ -1499,15 +1630,26 @@ fn handle_mouse_click(hwnd: HWND, x: i32, y: i32, client_w: i32) {
             if has_query && x >= card_right - 36 {
                 let mut q = SEARCH_QUERY.lock().unwrap();
                 q.clear();
+                SEARCH_ENGINE.lock().unwrap().reset();
+                SEARCH_SELECTED_ALL.store(false, Ordering::SeqCst);
                 drop(q);
                 SEARCH_FOCUSED.store(true, Ordering::SeqCst);
+                SEARCH_ANIM_PROGRESS.store(0, Ordering::SeqCst);
                 SCROLL_Y.store(0, Ordering::SeqCst);
                 TARGET_SCROLL_Y.store(0, Ordering::SeqCst);
-                unsafe { InvalidateRect(hwnd, null_mut(), 0); }
+                unsafe {
+                    SetTimer(hwnd, TIMER_ID_ANIM, 16, None);
+                    SetTimer(hwnd, TIMER_ID_CARET, 530, None);
+                    InvalidateRect(hwnd, null_mut(), 0);
+                }
                 return;
             } else {
                 SEARCH_FOCUSED.store(true, Ordering::SeqCst);
-                unsafe { InvalidateRect(hwnd, null_mut(), 0); }
+                SEARCH_SELECTED_ALL.store(false, Ordering::SeqCst);
+                unsafe {
+                    SetTimer(hwnd, TIMER_ID_CARET, 530, None);
+                    InvalidateRect(hwnd, null_mut(), 0);
+                }
                 return;
             }
         }
@@ -1565,7 +1707,11 @@ fn handle_mouse_click(hwnd: HWND, x: i32, y: i32, client_w: i32) {
 
         // Bỏ focus thanh search nếu click ra ngoài
         if SEARCH_FOCUSED.swap(false, Ordering::SeqCst) {
-            unsafe { InvalidateRect(hwnd, null_mut(), 0); }
+            SEARCH_SELECTED_ALL.store(false, Ordering::SeqCst);
+            unsafe {
+                KillTimer(hwnd, TIMER_ID_CARET);
+                InvalidateRect(hwnd, null_mut(), 0);
+            }
         }
     } else {
         // --- XỬ LÝ CÁC TRANG CON ---
@@ -2189,6 +2335,7 @@ unsafe fn render_page_elements(
             q.clone()
         };
         let has_query = !search_query.is_empty();
+        let is_selected_all = SEARCH_SELECTED_ALL.load(Ordering::SeqCst);
 
         let search_y = 62 - sy;
         let search_h = 40;
@@ -2201,19 +2348,74 @@ unsafe fn render_page_elements(
         let search_icon_color = if is_search_focused { ARGB_TEXT_PRIMARY } else { ARGB_TEXT_MUTED };
         draw_vector_search_icon(graphics, card_x + 20, search_y + 20, search_icon_color);
 
-        // Text or Placeholder
+        // Text input area
         let text_input_x = card_x + 38;
-        let text_input_y = search_y + 11;
+        let max_input_w = (card_w - 70) as f32;
+
         if !has_query {
-            let display = if is_search_focused { "|" } else { "Tìm kiếm cài đặt, tính năng..." };
-            draw_gdip_text(graphics, font_desc, display, text_input_x, text_input_y, ARGB_TEXT_MUTED, false);
-        } else {
-            let display = if is_search_focused {
-                format!("{}|", search_query)
-            } else {
-                search_query.clone()
+            // Draw placeholder vertically centered in search_y..search_y+40
+            let wide = to_wide("Tìm kiếm cài đặt, tính năng...");
+            let rect = RectF {
+                X: text_input_x as f32,
+                Y: search_y as f32,
+                Width: max_input_w,
+                Height: search_h as f32,
             };
-            draw_gdip_text(graphics, font_bold, &display, text_input_x, text_input_y, ARGB_TEXT_PRIMARY, false);
+            let mut format: *mut GpStringFormat = null_mut();
+            GdipCreateStringFormat(0x00001000, 0, &mut format);
+            GdipSetStringFormatLineAlign(format, StringAlignmentCenter);
+
+            let mut brush: *mut GpSolidFill = null_mut();
+            GdipCreateSolidFill(ARGB_TEXT_MUTED, &mut brush);
+            GdipDrawString(graphics, wide.as_ptr(), wide.len() as i32 - 1, font_desc, &rect, format, brush as *mut GpBrush);
+            GdipDeleteBrush(brush as *mut GpBrush);
+            GdipDeleteStringFormat(format);
+
+            // Blinking caret at beginning if focused
+            if is_search_focused {
+                let is_caret_visible = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() / 530) % 2 == 0;
+                if is_caret_visible {
+                    gdiplus_draw_line(graphics, text_input_x, search_y + 11, text_input_x, search_y + 29, ARGB_WHITE, 1.5);
+                }
+            }
+        } else {
+            let text_w = measure_gdip_text_width(graphics, font_bold, &search_query);
+
+            if is_selected_all {
+                // Draw selection highlight rectangle
+                let sel_x = text_input_x - 2;
+                let sel_y = search_y + 9;
+                let sel_w = (text_w + 4.0).ceil() as i32;
+                let sel_h = 22;
+                gdiplus_draw_rounded_card(graphics, sel_x, sel_y, sel_w, sel_h, 3, 0xFF264F78, 0, 0.0);
+            }
+
+            // Draw query text vertically centered
+            let wide = to_wide(&search_query);
+            let rect = RectF {
+                X: text_input_x as f32,
+                Y: search_y as f32,
+                Width: max_input_w,
+                Height: search_h as f32,
+            };
+            let mut format: *mut GpStringFormat = null_mut();
+            GdipCreateStringFormat(0x00001000, 0, &mut format);
+            GdipSetStringFormatLineAlign(format, StringAlignmentCenter);
+
+            let mut brush: *mut GpSolidFill = null_mut();
+            GdipCreateSolidFill(ARGB_TEXT_PRIMARY, &mut brush);
+            GdipDrawString(graphics, wide.as_ptr(), wide.len() as i32 - 1, font_bold, &rect, format, brush as *mut GpBrush);
+            GdipDeleteBrush(brush as *mut GpBrush);
+            GdipDeleteStringFormat(format);
+
+            // Blinking caret at end of text if focused and not selected all
+            if is_search_focused && !is_selected_all {
+                let is_caret_visible = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() / 530) % 2 == 0;
+                if is_caret_visible {
+                    let caret_x = (text_input_x as f32 + text_w).round() as i32;
+                    gdiplus_draw_line(graphics, caret_x, search_y + 11, caret_x, search_y + 29, ARGB_WHITE, 1.5);
+                }
+            }
 
             // Nút Clear "✕"
             let clear_btn_x = card_x + card_w - 22;
@@ -2305,18 +2507,24 @@ unsafe fn render_page_elements(
             let arrow4_color = if hover_id == 13 { ARGB_TEXT_PRIMARY } else { ARGB_TEXT_MUTED };
             draw_vector_chevron_right(graphics, right_ctrl - 12, 565 - sy, arrow4_color);
         } else {
-            // Render Search Results:
+            // Render Search Results with slide-in animation:
+            let search_anim_p = SEARCH_ANIM_PROGRESS.load(Ordering::SeqCst) as f32 / 1000.0;
+            let search_ease = 1.0 - (1.0 - search_anim_p).powi(3);
+            let anim_offset_y = ((1.0 - search_ease) * 10.0).round() as i32;
+
             let results = get_filtered_search_items(&search_query);
             let result_title = format!("KẾT QUẢ TÌM KIẾM ({})", results.len());
-            draw_gdip_text(graphics, font_section, &result_title, card_x + 4, 114 - sy, ARGB_STATUS_MUTED, false);
+            draw_gdip_text(graphics, font_section, &result_title, card_x + 4, 114 - sy + anim_offset_y, ARGB_STATUS_MUTED, false);
 
             if results.is_empty() {
                 let no_res_text = format!("Không tìm thấy cài đặt phù hợp với \"{}\"", search_query);
-                draw_gdip_text(graphics, font_bold, &no_res_text, card_x + 4, 148 - sy, ARGB_TEXT_PRIMARY, false);
-                draw_gdip_text(graphics, font_desc, "Gợi ý: telex, vni, dấu, hoa, ram, trình duyệt, khởi động...", card_x + 4, 176 - sy, ARGB_TEXT_MUTED, false);
+                draw_gdip_text(graphics, font_bold, &no_res_text, card_x + 4, 148 - sy + anim_offset_y, ARGB_TEXT_PRIMARY, false);
+                draw_gdip_text(graphics, font_desc, "Gợi ý: telex, vni, dấu, hoa, ram, trình duyệt, khởi động...", card_x + 4, 176 - sy + anim_offset_y, ARGB_TEXT_MUTED, false);
             } else {
+                let max_text_w = ((right_ctrl - 64) - (left_text + 52)).max(100) as f32;
+
                 for (idx, item) in results.iter().enumerate() {
-                    let item_y = 140 + (idx as i32) * 74 - sy;
+                    let item_y = 140 + (idx as i32) * 74 - sy + anim_offset_y;
                     let is_item_hovered = hover_id == 1000 + idx as i32;
                     let item_bg = if is_item_hovered { ARGB_CARD_HOVER } else { ARGB_CARD_BG };
 
@@ -2332,28 +2540,19 @@ unsafe fn render_page_elements(
                         _ => draw_vector_info_icon(graphics, left_text + 20, item_y + 31, ARGB_TEXT_PRIMARY),
                     }
 
-                    // Title & Description
-                    draw_gdip_text(graphics, font_bold, item.title, left_text + 52, item_y + 10, ARGB_TEXT_PRIMARY, false);
-                    let sub = format!("{} • {}", item.category, item.desc);
-                    draw_gdip_text(graphics, font_desc, &sub, left_text + 52, item_y + 34, ARGB_TEXT_MUTED, false);
+                    // Title & Description (truncated to prevent bleeding behind switches/arrows)
+                    let title_display = truncate_text_to_width(graphics, font_bold, item.title, max_text_w);
+                    draw_gdip_text(graphics, font_bold, &title_display, left_text + 52, item_y + 10, ARGB_TEXT_PRIMARY, false);
 
-                    // Right control
+                    let sub = format!("{} • {}", item.category, item.desc);
+                    let desc_display = truncate_text_to_width(graphics, font_desc, &sub, max_text_w);
+                    draw_gdip_text(graphics, font_desc, &desc_display, left_text + 52, item_y + 34, ARGB_TEXT_MUTED, false);
+
+                    // Right control: Toggle or Action Chevron
                     match item.kind {
                         SearchItemKind::Toggle => {
                             let p = get_item_toggle_progress(item.id);
                             draw_animated_switch(graphics, right_ctrl - 50, item_y + 18, p);
-                        }
-                        SearchItemKind::InputMethodPill => {
-                            let is_vni = config.input_method == InputMethod::Vni;
-                            let pill_text = if is_vni { "VNI" } else { "Telex" };
-                            gdiplus_draw_rounded_card(graphics, right_ctrl - 68, item_y + 16, 68, 30, 15, ARGB_PILL_TRACK, ARGB_CARD_BORDER, 1.0);
-                            draw_gdip_text_centered(graphics, font_btn, pill_text, right_ctrl - 68, item_y + 16, 68, 30, ARGB_TEXT_PRIMARY);
-                        }
-                        SearchItemKind::SwitchKeyPill => {
-                            let is_alt_z = config.switch_key == SwitchKey::AltZ;
-                            let pill_text = if is_alt_z { "Alt+Z" } else { "Ctrl+Shift" };
-                            gdiplus_draw_rounded_card(graphics, right_ctrl - 84, item_y + 16, 84, 30, 15, ARGB_PILL_TRACK, ARGB_CARD_BORDER, 1.0);
-                            draw_gdip_text_centered(graphics, font_btn, pill_text, right_ctrl - 84, item_y + 16, 84, 30, ARGB_TEXT_PRIMARY);
                         }
                         SearchItemKind::Action(_) => {
                             let arrow_color = if is_item_hovered { ARGB_TEXT_PRIMARY } else { ARGB_TEXT_MUTED };
