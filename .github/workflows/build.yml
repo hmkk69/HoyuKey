@@ -13,26 +13,36 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build & Publish Release
-    runs-on: windows-latest
+  version:
+    name: Calculate Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      patch: ${{ steps.ver.outputs.patch }}
+    steps:
+      - name: Calculate version
+        id: ver
+        run: |
+          RUN_NUM=${{ github.run_number }}
+          OFFSET=60
+          PATCH=$(( RUN_NUM > OFFSET ? RUN_NUM - OFFSET : 0 ))
+          VERSION="1.0.$PATCH"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "patch=$PATCH" >> $GITHUB_OUTPUT
+          echo "Calculated version: $VERSION (Build #$PATCH, Run #$RUN_NUM)"
 
+  build-windows:
+    name: Build Windows
+    needs: version
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Calculate version and set in Cargo.toml
-        id: version
+      - name: Set version in Cargo.toml
         shell: powershell
         run: |
-          $run_num = ${{ github.run_number }}
-          $offset = 60
-          $patch = [Math]::Max(0, $run_num - $offset)
-          $ver = "1.0.$patch"
-          Write-Host "Calculated version: $ver (Build #$patch, Run #$run_num)"
-          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "patch=$patch" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "Setting version to $ver in Cargo.toml..."
+          $ver = "${{ needs.version.outputs.version }}"
           (Get-Content Cargo.toml) -replace '^version = ".*"', "version = `"$ver`"" | Set-Content Cargo.toml
 
       - name: Install Rust stable
@@ -60,40 +70,121 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist
           Copy-Item target/release/hoyukey.exe dist/HoyuKey.exe
 
-      - name: Upload Artifact
+      - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HoyuKey-v${{ steps.version.outputs.version }}-Windows-x64
+          name: hoyukey-windows
           path: dist/HoyuKey.exe
-          retention-days: 30
+          retention-days: 5
+
+  build-linux:
+    name: Build Linux (Fcitx5 & CLI)
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake extra-cmake-modules libfcitx5core-dev libfcitx5utils-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Linux Tests
+        run: cargo test -p hoyukey-core -p hoyukey-c -p hoyukey-cli --verbose
+
+      - name: Build Rust Libraries & CLI
+        run: cargo build --release -p hoyukey-c -p hoyukey-cli
+
+      - name: Build Fcitx5 HoyuKey Addon
+        run: |
+          cd crates/fcitx5-hoyukey
+          cmake -B build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Package Linux Distribution
+        run: |
+          mkdir -p dist-linux/fcitx5-hoyukey
+          cp crates/fcitx5-hoyukey/build/hoyukey.so dist-linux/fcitx5-hoyukey/
+          cp crates/fcitx5-hoyukey/hoyukey.conf dist-linux/fcitx5-hoyukey/
+          cp crates/fcitx5-hoyukey/hoyukey-addon.conf dist-linux/fcitx5-hoyukey/
+          cp crates/fcitx5-hoyukey/scripts/install.sh dist-linux/fcitx5-hoyukey/
+          chmod +x dist-linux/fcitx5-hoyukey/install.sh
+          tar -czf dist-linux/fcitx5-hoyukey-linux-x64.tar.gz -C dist-linux fcitx5-hoyukey
+          cp target/release/hoyukey-cli dist-linux/hoyukey-cli-linux-x64
+          chmod +x dist-linux/hoyukey-cli-linux-x64
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoyukey-linux
+          path: |
+            dist-linux/fcitx5-hoyukey-linux-x64.tar.gz
+            dist-linux/hoyukey-cli-linux-x64
+          retention-days: 5
+
+  publish:
+    name: Publish GitHub Release
+    needs: [version, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: hoyukey-windows
+          path: release-assets
+
+      - name: Download Linux Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: hoyukey-linux
+          path: release-assets
 
       - name: Publish GitHub Pre-Release
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: "HoyuKey v${{ steps.version.outputs.version }}"
+          tag_name: v${{ needs.version.outputs.version }}
+          name: "HoyuKey v${{ needs.version.outputs.version }}"
           body: |
-            HoyuKey v${{ steps.version.outputs.version }}
-            (Phiên bản được build tự động)
+            HoyuKey v${{ needs.version.outputs.version }}
+            (Phiên bản đa nền tảng được build tự động)
 
-            Phiên bản: ${{ steps.version.outputs.version }}
-            Commit: ${{ github.sha }} (Build #${{ steps.version.outputs.patch }})
+            Phiên bản: ${{ needs.version.outputs.version }}
+            Commit: ${{ github.sha }} (Build #${{ needs.version.outputs.patch }})
 
-            | File | Dành cho |
-            | :--- | :--- |
-            | HoyuKey.exe | Windows x64 |
+            | File | Nền tảng | Hướng dẫn |
+            | :--- | :--- | :--- |
+            | `HoyuKey.exe` | Windows x64 | Chạy trực tiếp (Portable) |
+            | `fcitx5-hoyukey-linux-x64.tar.gz` | Linux x64 (Ubuntu / Debian / Fedora / Arch) | Giải nén và chạy `./install.sh` |
+            | `hoyukey-cli-linux-x64` | Linux x64 CLI | Công cụ test gõ dòng lệnh |
 
             ---
-            ### Hướng dẫn tránh bị Windows Security chặn nhầm:
-            Do phần mềm chưa có chữ ký số, Windows Security có thể nhận diện nhầm. Để phần mềm và tính năng tự động cập nhật hoạt động ổn định:
-            1. Tạo một thư mục riêng (ví dụ: C:\HoyuKey hoặc D:\HoyuKey) và đặt file HoyuKey.exe vào đó.
-            2. Thêm thư mục trên vào danh sách loại trừ (Exclusion) của Windows:
-               - Mở **Windows Security** -> chọn **Virus & threat protection**.
-               - Tại mục **Virus & threat protection settings**, nhấn **Manage settings**.
-               - Cuộn xuống mục **Exclusions**, nhấn **Add or remove exclusions**.
-               - Nhấn **Add an exclusion** -> chọn **Folder** rồi chọn thư mục bạn vừa tạo.
+            ### Hướng dẫn cài đặt trên Linux (Fcitx5):
+            1. Tải file `fcitx5-hoyukey-linux-x64.tar.gz`.
+            2. Giải nén và chạy cài đặt:
+               ```bash
+               tar -xzf fcitx5-hoyukey-linux-x64.tar.gz
+               cd fcitx5-hoyukey
+               chmod +x install.sh
+               ./install.sh
+               ```
+            3. Mở **Fcitx5 Configuration** và thêm **HoyuKey** vào danh sách bộ gõ.
+
+            ---
+            ### Hướng dẫn tránh bị Windows Security chặn nhầm (Windows):
+            Do phần mềm chưa có chữ ký số, Windows Security có thể nhận diện nhầm:
+            1. Đặt file `HoyuKey.exe` vào một thư mục riêng (ví dụ: `C:\HoyuKey` hoặc `D:\HoyuKey`).
+            2. Thêm thư mục trên vào danh sách loại trừ (Exclusion) trong Windows Security.
           prerelease: true
           draft: false
           files: |
-            dist/HoyuKey.exe
+            release-assets/HoyuKey.exe
+            release-assets/fcitx5-hoyukey-linux-x64.tar.gz
+            release-assets/hoyukey-cli-linux-x64
