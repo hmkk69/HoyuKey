@@ -536,6 +536,8 @@ unsafe extern "system" fn low_level_keyboard_proc(
             if kbd.vkCode as u16 == VK_HOME {
                 if let Ok(mut state) = GLOBAL_STATE.lock() {
                     state.engine.at_start_of_line = true;
+                    state.engine.has_typed_in_line = false;
+                    state.engine.line_words.clear();
                 }
             }
             if matches!(kbd.vkCode as u16, VK_HOME | VK_END | VK_PRIOR | VK_NEXT) {
@@ -737,6 +739,7 @@ pub fn toggle_vietnamese_mode() {
 fn reset_engine() {
     let mut state = GLOBAL_STATE.lock().unwrap();
     state.engine.reset();
+    state.engine.line_words.clear();
 }
 
 fn vk_to_char(vk: u32, scan_code: u32) -> Option<char> {

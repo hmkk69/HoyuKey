@@ -31,6 +31,8 @@ pub struct Engine {
     pub raw_keys: String,
     pub has_transformed: bool,
     pub last_word_before_space: Option<(String, String, bool)>,
+    pub line_words: Vec<TypedWord>,
+    pub spaces_after_word: usize,
     pub caret_offset: Option<usize>,
     pub at_start_of_line: bool,
     pub after_sentence_end: bool,
@@ -43,6 +45,15 @@ pub struct Engine {
     pub caret_needs_check: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct TypedWord {
+    pub word: String,
+    pub raw: String,
+    pub transformed: bool,
+    pub was_line_start: bool,
+    pub was_sentence_start: bool,
+}
+
 impl Engine {
     pub fn new() -> Self {
         Self {
@@ -50,6 +61,8 @@ impl Engine {
             raw_keys: String::new(),
             has_transformed: false,
             last_word_before_space: None,
+            line_words: Vec::new(),
+            spaces_after_word: 0,
             caret_offset: None,
             at_start_of_line: true,
             after_sentence_end: false,
@@ -71,11 +84,13 @@ impl Engine {
         self.caret_offset = None;
         self.has_space_before = false;
         self.caret_needs_check = false;
+        self.spaces_after_word = 0;
     }
 
     pub fn on_enter(&mut self) {
         let was_after_punct = self.saw_sentence_end_punct;
         self.reset();
+        self.line_words.clear();
         self.at_start_of_line = true;
         self.after_sentence_end = was_after_punct;
         self.saw_sentence_end_punct = false;
@@ -88,6 +103,7 @@ impl Engine {
 
     pub fn on_window_change(&mut self) {
         self.reset();
+        self.line_words.clear();
         self.at_start_of_line = true;
         self.after_sentence_end = false;
         self.saw_sentence_end_punct = false;
@@ -121,6 +137,7 @@ impl Engine {
                         chars.remove(offset - 1);
                         self.current_word = chars.into_iter().collect();
                         self.caret_offset = Some(offset - 1);
+                        self.last_char_typed = self.current_word.chars().last();
                     }
                     return;
                 }
@@ -128,13 +145,14 @@ impl Engine {
 
             self.current_word.pop();
             self.raw_keys.pop();
+            self.last_char_typed = self.current_word.chars().last();
+
             if self.current_word.is_empty() {
                 self.raw_keys.clear();
                 self.has_transformed = false;
                 self.caret_offset = None;
-                // CHỈ khôi phục viết hoa nếu chính từ vừa bị xóa là từ mở đầu dòng / mở đầu câu:
-                // Tuyệt đối không kiểm tra last_word_before_space để tránh viết hoa nhầm giữa câu!
-                if self.was_at_line_start {
+                // Nếu từ vừa bị xóa sạch là từ đầu dòng hoặc toàn bộ các từ trước đó trên dòng cũng đã bị xóa:
+                if self.was_at_line_start || self.line_words.is_empty() {
                     self.at_start_of_line = true;
                     self.has_typed_in_line = false;
                 }
@@ -145,9 +163,39 @@ impl Engine {
                 self.caret_offset = Some(self.current_word.chars().count());
             }
         } else {
-            // Buffer đã rỗng: chỉ khôi phục đầu dòng nếu dòng chưa hề có chữ nào được gõ
-            if !self.has_typed_in_line {
+            // Buffer hiện tại rỗng (đang ở vị trí khoảng trắng hoặc người dùng tiếp tục Backspace):
+            if self.spaces_after_word > 1 {
+                self.spaces_after_word -= 1;
+            } else if self.spaces_after_word == 1 {
+                self.spaces_after_word = 0;
+                if let Some(last_word) = self.line_words.pop() {
+                    self.current_word = last_word.word;
+                    self.raw_keys = last_word.raw;
+                    self.has_transformed = last_word.transformed;
+                    self.was_at_line_start = last_word.was_line_start;
+                    self.was_at_sentence_start = last_word.was_sentence_start;
+                    self.caret_offset = Some(self.current_word.chars().count());
+                    self.last_char_typed = self.current_word.chars().last();
+                    self.has_space_before = false;
+                    self.last_word_before_space = self.line_words.last().map(|w| (w.word.clone(), w.raw.clone(), w.transformed));
+                } else {
+                    self.at_start_of_line = true;
+                    self.has_typed_in_line = false;
+                }
+            } else if let Some(last_word) = self.line_words.pop() {
+                self.current_word = last_word.word;
+                self.raw_keys = last_word.raw;
+                self.has_transformed = last_word.transformed;
+                self.was_at_line_start = last_word.was_line_start;
+                self.was_at_sentence_start = last_word.was_sentence_start;
+                self.caret_offset = Some(self.current_word.chars().count());
+                self.last_char_typed = self.current_word.chars().last();
+                self.has_space_before = false;
+                self.last_word_before_space = self.line_words.last().map(|w| (w.word.clone(), w.raw.clone(), w.transformed));
+            } else {
+                // Toàn bộ dòng đã rỗng hoàn toàn:
                 self.at_start_of_line = true;
+                self.has_typed_in_line = false;
             }
         }
     }
@@ -155,7 +203,18 @@ impl Engine {
     /// Khôi phục từ vừa gõ khi bấm mũi tên trái (cho phép sửa dấu / từ mà không cần Backspace)
     pub fn on_arrow_left(&mut self) {
         if self.current_word.is_empty() {
-            if let Some((word, raw, transformed)) = self.last_word_before_space.take() {
+            if let Some(last_word) = self.line_words.pop() {
+                let len = last_word.word.chars().count();
+                self.current_word = last_word.word;
+                self.raw_keys = last_word.raw;
+                self.has_transformed = last_word.transformed;
+                self.was_at_line_start = last_word.was_line_start;
+                self.was_at_sentence_start = last_word.was_sentence_start;
+                self.last_word_before_space = self.line_words.last().map(|w| (w.word.clone(), w.raw.clone(), w.transformed));
+                self.caret_offset = Some(len);
+                self.has_space_before = false;
+                self.at_start_of_line = false;
+            } else if let Some((word, raw, transformed)) = self.last_word_before_space.take() {
                 let len = word.chars().count();
                 self.current_word = word;
                 self.raw_keys = raw;
@@ -213,6 +272,7 @@ impl Engine {
     /// Reset sạch buffer khi người dùng click chuột bất kỳ đâu (nhường quyền cho dynamic caret đọc từ thực tế tại vị trí click)
     pub fn on_mouse_click(&mut self) {
         self.reset();
+        self.line_words.clear();
         self.last_word_before_space = None;
         self.last_char_typed = None;
         if !self.has_typed_in_line {
@@ -239,17 +299,28 @@ impl Engine {
             if self.saw_sentence_end_punct {
                 self.after_sentence_end = true;
             }
-            self.was_at_line_start = false;
-            self.was_at_sentence_start = false;
             if !self.current_word.is_empty() {
                 self.last_word_before_space = Some((
                     self.current_word.clone(),
                     self.raw_keys.clone(),
                     self.has_transformed,
                 ));
+                self.line_words.push(TypedWord {
+                    word: self.current_word.clone(),
+                    raw: self.raw_keys.clone(),
+                    transformed: self.has_transformed,
+                    was_line_start: self.was_at_line_start,
+                    was_sentence_start: self.was_at_sentence_start,
+                });
+                if self.line_words.len() > 50 {
+                    self.line_words.remove(0);
+                }
                 self.current_word.clear();
                 self.raw_keys.clear();
                 self.has_transformed = false;
+                self.spaces_after_word = 1;
+            } else {
+                self.spaces_after_word += 1;
             }
             return KeyAction::PassThrough;
         }
@@ -267,6 +338,18 @@ impl Engine {
                 self.saw_sentence_end_punct = false;
                 self.after_sentence_end = false;
             }
+            if !self.current_word.is_empty() {
+                self.line_words.push(TypedWord {
+                    word: self.current_word.clone(),
+                    raw: self.raw_keys.clone(),
+                    transformed: self.has_transformed,
+                    was_line_start: self.was_at_line_start,
+                    was_sentence_start: self.was_at_sentence_start,
+                });
+                if self.line_words.len() > 50 {
+                    self.line_words.remove(0);
+                }
+            }
             self.was_at_line_start = false;
             self.was_at_sentence_start = false;
             self.reset();
@@ -279,18 +362,13 @@ impl Engine {
             && ((config.auto_caps_line && self.at_start_of_line)
                 || (config.auto_caps_sentence && self.after_sentence_end));
 
-        // Bắt đầu một từ mới: xóa lịch sử từ cũ và ghi nhớ vị trí đầu dòng/đầu câu
+        // Bắt đầu một từ mới: ghi nhớ vị trí đầu dòng/đầu câu
         if self.current_word.is_empty() {
             self.last_word_before_space = None;
             self.raw_keys.clear();
             self.has_transformed = false;
-            if should_capitalize {
-                self.was_at_line_start = self.at_start_of_line;
-                self.was_at_sentence_start = self.after_sentence_end;
-            } else {
-                self.was_at_line_start = false;
-                self.was_at_sentence_start = false;
-            }
+            self.was_at_line_start = self.at_start_of_line;
+            self.was_at_sentence_start = self.after_sentence_end;
         }
 
         if self.current_word.len() > 30 {
@@ -1103,6 +1181,59 @@ mod tests {
         assert!(engine.current_word.is_empty());
         let a_mid2 = engine.process_char('h', &config);
         assert_eq!(a_mid2, KeyAction::PassThrough, "Chữ 'h' giữa câu sau khi backspace xóa từ KHÔNG ĐƯỢC viết hoa!");
+
+        // 8. Test kịch bản người dùng: Gõ 'Hello ' (kèm dấu cách), xóa 6 backspaces rồi gõ lại:
+        engine.on_enter();
+        let a_h_space = engine.process_char('h', &config);
+        assert_eq!(a_h_space, KeyAction::Transform { backspaces: 0, text: "H".to_string() });
+        for ch in "ello ".chars() {
+            engine.process_char(ch, &config);
+        }
+        assert!(engine.current_word.is_empty());
+        // 6 backspaces: 1 xóa space, 5 xóa 'Hello'
+        for _ in 0..6 {
+            engine.handle_backspace(false);
+        }
+        assert!(engine.current_word.is_empty());
+        let a_h_space2 = engine.process_char('h', &config);
+        assert_eq!(a_h_space2, KeyAction::Transform { backspaces: 0, text: "H".to_string() }, "Gõ lại Hello sau khi backspace cả space và chữ phải viết hoa!");
+
+        // 9. Backspace dư (7 backspaces):
+        engine.process_char('e', &config);
+        for _ in 0..7 {
+            engine.handle_backspace(false);
+        }
+        let a_h_space3 = engine.process_char('h', &config);
+        assert_eq!(a_h_space3, KeyAction::Transform { backspaces: 0, text: "H".to_string() }, "Backspace dư vẫn phải viết hoa chữ đầu dòng!");
+
+        // 10. Xóa nhiều từ lùi về đầu dòng: 'Hello world ' -> xóa hết 12 ký tự -> gõ 'x' -> 'X'
+        engine.on_enter();
+        engine.process_char('h', &config);
+        for ch in "ello world ".chars() {
+            engine.process_char(ch, &config);
+        }
+        for _ in 0..12 {
+            engine.handle_backspace(false);
+        }
+        let a_x = engine.process_char('x', &config);
+        assert_eq!(a_x, KeyAction::Transform { backspaces: 0, text: "X".to_string() }, "Sau khi xóa nhiều từ về đầu dòng phải viết hoa!");
+
+        // 11. Sau dấu chấm câu: 'Xong. tieep ' -> xóa 5 ký tự (' tieep') -> gõ 'm' -> 'M'
+        engine.on_enter();
+        for ch in "xong. ".chars() {
+            engine.process_char(ch, &config);
+        }
+        let a_t = engine.process_char('t', &config);
+        assert_eq!(a_t, KeyAction::Transform { backspaces: 0, text: "T".to_string() }, "Đầu câu mới phải viết hoa!");
+        for ch in "ieep ".chars() {
+            engine.process_char(ch, &config);
+        }
+        // Xóa dấu cách và từ 'tiếp'
+        for _ in 0..5 {
+            engine.handle_backspace(false);
+        }
+        let a_m = engine.process_char('m', &config);
+        assert_eq!(a_m, KeyAction::Transform { backspaces: 0, text: "M".to_string() }, "Sau khi xóa từ đầu câu, gõ lại từ khác vẫn phải viết hoa đầu câu!");
     }
 
         #[test]
