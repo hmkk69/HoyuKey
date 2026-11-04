@@ -226,7 +226,8 @@ impl Config {
                 "smart_english" => self.smart_english = val == "true",
                 "modify_tone_in_word" => self.modify_tone_in_word = val == "true",
                 "simple_telex" => self.simple_telex = val == "true",
-                "dynamic_caret" => self.dynamic_caret = val == "true",
+                // Tắt dynamic_caret do gây lỗi gõ
+                "dynamic_caret" => self.dynamic_caret = false,
                 "auto_caps_line" => self.auto_caps_line = val == "true",
                 "auto_caps_sentence" => self.auto_caps_sentence = val == "true",
                 "auto_period_enter" => self.auto_period_enter = val == "true",

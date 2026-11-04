@@ -328,6 +328,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
         return CallNextHookEx(null_mut(), code, wparam, lparam);
     }
 
+
     let vk = kbd.vkCode as u16;
     let vk_idx = (kbd.vkCode as usize) & 0xFF;
 
@@ -400,9 +401,21 @@ unsafe extern "system" fn low_level_keyboard_proc(
         let current_fg = GetForegroundWindow() as isize;
         let prev_fg = LAST_FOREGROUND_WINDOW.swap(current_fg, Ordering::SeqCst);
         if prev_fg != 0 && prev_fg != current_fg {
-            {
-                let mut state = GLOBAL_STATE.lock().unwrap();
-                state.engine.on_window_change();
+            // Chỉ reset buffer khi chuyển tiến trình khác
+            // Tránh reset nhầm khi Notepad thay đổi HWND nội bộ
+            let process_changed = {
+                let prev_name = get_process_name_by_hwnd(prev_fg as HWND);
+                let curr_name = get_process_name_by_hwnd(current_fg as HWND);
+                match (prev_name, curr_name) {
+                    (Some(a), Some(b)) => a != b,
+                    _ => true,
+                }
+            };
+            if process_changed {
+                {
+                    let mut state = GLOBAL_STATE.lock().unwrap();
+                    state.engine.on_window_change();
+                }
             }
             on_focus_window_changed(current_fg as HWND);
         }
@@ -670,6 +683,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
         match action {
             KeyAction::Transform { backspaces, text } => {
+                let _ = ();
                 BLOCKED_VK[vk_idx].store(true, Ordering::SeqCst);
                 send_transform_batch(backspaces, &text, has_space_before, browser_compatibility, &browser_apps);
                 return 1;
@@ -779,6 +793,8 @@ unsafe fn send_replace_batch(deletes: usize, backspaces: usize, text: &str) {
     if deletes == 0 && backspaces == 0 && text.is_empty() {
         return;
     }
+
+    // Giữ SendInput tiêu chuẩn cho mọi ứng dụng
 
     let mut inputs = Vec::with_capacity((deletes + backspaces) * 2 + text.encode_utf16().count() * 2);
 
