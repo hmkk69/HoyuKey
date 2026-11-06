@@ -797,6 +797,23 @@ mod tests {
         // 3. Thoát dấu lặp phím:
         assert_eq!(type_single_word(&mut engine, "ddd"), "dd");
         assert_eq!(type_single_word(&mut engine, "toanss"), "toans");
+        // Kiểm tra logic w chuẩn OpenKey / UniKey:
+        // Standalone 'w' -> 'ư', double 'w' ('ww') -> 'w' (KHÔNG PHẢI 'uw')
+        assert_eq!(type_single_word(&mut engine, "w"), "ư");
+        assert_eq!(type_single_word(&mut engine, "ww"), "w");
+        assert_eq!(type_single_word(&mut engine, "W"), "Ư");
+        assert_eq!(type_single_word(&mut engine, "WW"), "W");
+        // 'rw' -> 'rư', 'rww' -> 'rw'
+        assert_eq!(type_single_word(&mut engine, "rw"), "rư");
+        assert_eq!(type_single_word(&mut engine, "rww"), "rw");
+        // 'uw' -> 'ư', 'uww' -> 'uw' (khi đã có 'u' rõ ràng)
+        assert_eq!(type_single_word(&mut engine, "uw"), "ư");
+        assert_eq!(type_single_word(&mut engine, "uww"), "uw");
+
+        // Gõ từ có nguyên âm ghép và phụ âm chuẩn:
+        assert_eq!(type_single_word(&mut engine, "vaanx"), "vẫn");
+        assert_eq!(type_single_word(&mut engine, "ruw"), "rư");
+        assert_eq!(type_single_word(&mut engine, "uaanx"), "uẫn");
 
         // 4. Backspace không mất dấu:
         // "toans" -> "toán", xóa 1 ký tự -> "toá", gõ 'm' -> "toám"

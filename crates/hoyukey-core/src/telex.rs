@@ -18,7 +18,7 @@ pub fn transform_telex(
     free_marking: bool,
     smart_english: bool,
     simple_telex: bool,
-    _raw_keys: Option<&str>,
+    raw_keys: Option<&str>,
 ) -> Option<String> {
     if word.is_empty() {
         if key == 'w' || key == 'W' {
@@ -74,7 +74,7 @@ pub fn transform_telex(
 
     // 4. Phím móc / trăng: 'w' / 'W'
     if key_lower == 'w' {
-        if let Some(res) = handle_w_key(word, is_key_upper, free_marking, simple_telex) {
+        if let Some(res) = handle_w_key(word, is_key_upper, free_marking, simple_telex, raw_keys) {
             return Some(res);
         }
     }
@@ -262,7 +262,29 @@ fn handle_w_key(
     is_key_upper: bool,
     free_marking: bool,
     simple_telex: bool,
+    raw_keys: Option<&str>,
 ) -> Option<String> {
+    // 0. Double-tap 'w' thoát dấu móc chuẩn UniKey / EVKey:
+    // - Khi từ chỉ là 'ư' hoặc 'Ư' (do gõ 'w' hoặc 'W' ở đầu từ) và gõ tiếp 'w':
+    //   BẮT BUỘC thoát thành 'w' (hoặc 'W'), tuyệt đối KHÔNG ĐƯỢC biến thành 'uw'!
+    if word == CHAR_U_HORN_LOWER.to_string() || word == CHAR_U_HORN_UPPER.to_string() {
+        return Some(if is_key_upper { "W".to_string() } else { "w".to_string() });
+    }
+
+    // - Nếu chữ 'ư' đứng cuối được tạo từ phím 'w' sau phụ âm (ví dụ: gõ 'rw' -> 'rư'):
+    //   Gõ tiếp 'w' phải thoát về phụ âm + 'w' (ví dụ: 'rw' + 'w' -> 'rw', tuyệt đối không phải 'ruw')!
+    if let Some(raw) = raw_keys {
+        let raw_lower = raw.to_ascii_lowercase();
+        if raw_lower.ends_with('w') && !raw_lower.ends_with("uw") {
+            if word.ends_with(CHAR_U_HORN_LOWER) || word.ends_with(CHAR_U_HORN_UPPER) {
+                let mut res = word.to_string();
+                res.pop();
+                res.push(if is_key_upper { 'W' } else { 'w' });
+                return Some(res);
+            }
+        }
+    }
+
     let mut decomp = decompose_word(word)?;
 
     if decomp.vowels.is_empty() {

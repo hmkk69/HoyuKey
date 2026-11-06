@@ -1056,8 +1056,6 @@ unsafe fn send_transform_batch(
     {
         if crate::automation::is_browser_selection_active() {
             1
-        } else if !is_focused_in_web_content() {
-            1
         } else {
             0
         }
