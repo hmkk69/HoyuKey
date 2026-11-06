@@ -89,6 +89,7 @@ pub struct IUIAutomationElementVtbl {
     pub GetCachedPropertyValue: usize,
     pub GetCachedPropertyValueEx: usize,
     pub GetCurrentPatternAs: usize,
+    pub GetCachedPatternAs: usize,
     pub GetCurrentPattern: unsafe extern "system" fn(
         this: *mut c_void,
         patternId: i32,
@@ -132,7 +133,13 @@ pub struct IUIAutomationTextRangeVtbl {
         cloned: *mut *mut c_void,
     ) -> windows_sys::core::HRESULT,
     pub Compare: usize,
-    pub CompareEndpoints: usize,
+    pub CompareEndpoints: unsafe extern "system" fn(
+        this: *mut c_void,
+        srcEndPoint: i32,
+        targetRange: *mut c_void,
+        targetEndPoint: i32,
+        compResult: *mut i32,
+    ) -> windows_sys::core::HRESULT,
     pub ExpandToEnclosingUnit: unsafe extern "system" fn(
         this: *mut c_void,
         unit: i32,
@@ -443,6 +450,20 @@ pub fn is_browser_selection_active() -> bool {
             None => return false,
         };
 
+        // 1. Kiểm tra nhanh qua CompareEndpoints: nếu Start != End -> chắc chắn có vùng chọn bôi đen
+        let mut comp_result: i32 = 0;
+        let hr_comp = (caret_range.vtbl().CompareEndpoints)(
+            caret_range.as_ptr(),
+            TEXT_PATTERN_RANGE_ENDPOINT_START,
+            caret_range.as_ptr(),
+            TEXT_PATTERN_RANGE_ENDPOINT_END,
+            &mut comp_result,
+        );
+        if hr_comp >= 0 && comp_result != 0 {
+            return true;
+        }
+
+        // 2. Dự phòng kiểm tra độ dài chuỗi vùng chọn
         let mut bstr: *mut u16 = null_mut();
         let hr = (caret_range.vtbl().GetText)(caret_range.as_ptr(), -1, &mut bstr);
         if hr >= 0 && !bstr.is_null() {
