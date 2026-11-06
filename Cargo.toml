@@ -5,7 +5,7 @@ members = [
 
 [package]
 name = "hoyukey"
-version = "1.0.95"
+version = "1.1.0"
 edition = "2021"
 authors = ["Hoyuuna"]
 description = "HoyuKey - Bộ gõ Tiếng Việt siêu nhẹ và hiện đại cho Windows viết bằng Rust"
