@@ -264,19 +264,32 @@ fn handle_w_key(
     simple_telex: bool,
     raw_keys: Option<&str>,
 ) -> Option<String> {
-    // 0. Double-tap 'w' thoát dấu móc chuẩn UniKey / EVKey:
-    // - Khi từ chỉ là 'ư' hoặc 'Ư' (do gõ 'w' hoặc 'W' ở đầu từ) và gõ tiếp 'w':
-    //   BẮT BUỘC thoát thành 'w' (hoặc 'W'), tuyệt đối KHÔNG ĐƯỢC biến thành 'uw'!
-    if word == CHAR_U_HORN_LOWER.to_string() || word == CHAR_U_HORN_UPPER.to_string() {
-        return Some(if is_key_upper { "W".to_string() } else { "w".to_string() });
-    }
-
-    // - Nếu chữ 'ư' đứng cuối được tạo từ phím 'w' sau phụ âm (ví dụ: gõ 'rw' -> 'rư'):
-    //   Gõ tiếp 'w' phải thoát về phụ âm + 'w' (ví dụ: 'rw' + 'w' -> 'rw', tuyệt đối không phải 'ruw')!
+    // 0. Double-tap 'w' thoát dấu móc chuẩn OpenKey / UniKey:
     if let Some(raw) = raw_keys {
         let raw_lower = raw.to_ascii_lowercase();
-        if raw_lower.ends_with('w') && !raw_lower.ends_with("uw") {
-            if word.ends_with(CHAR_U_HORN_LOWER) || word.ends_with(CHAR_U_HORN_UPPER) {
+
+        // - Trường hợp 1: Chữ 'ư' đứng một mình:
+        //   + Nếu tạo từ standalone 'w' (raw không kết thúc bằng 'uw'): Thoát thành 'w' (hoặc 'W').
+        //   + Nếu tạo từ 'u' + 'w' (raw kết thúc bằng 'uw'): Thoát về 'uw' (hoặc 'uW').
+        if word == CHAR_U_HORN_LOWER.to_string() || word == CHAR_U_HORN_UPPER.to_string() {
+            if raw_lower.ends_with("uw") {
+                return Some(if is_key_upper { "uW".to_string() } else { "uw".to_string() });
+            } else {
+                return Some(if is_key_upper { "W".to_string() } else { "w".to_string() });
+            }
+        }
+
+        // - Trường hợp 2: Chữ 'ư' đứng sau phụ âm (ví dụ: 'rw' -> 'rư', 'ruw' -> 'rư'):
+        if word.ends_with(CHAR_U_HORN_LOWER) || word.ends_with(CHAR_U_HORN_UPPER) {
+            if raw_lower.ends_with("uw") {
+                // Thoát về phụ âm + 'uw' (ví dụ: 'ruw' + 'w' -> 'ruw')
+                let mut res = word.to_string();
+                res.pop();
+                res.push('u');
+                res.push(if is_key_upper { 'W' } else { 'w' });
+                return Some(res);
+            } else if raw_lower.ends_with('w') {
+                // Thoát về phụ âm + 'w' (ví dụ: 'rw' + 'w' -> 'rw')
                 let mut res = word.to_string();
                 res.pop();
                 res.push(if is_key_upper { 'W' } else { 'w' });
@@ -288,12 +301,24 @@ fn handle_w_key(
     let mut decomp = decompose_word(word)?;
 
     if decomp.vowels.is_empty() {
-        let u_horn = if is_key_upper {
-            CHAR_U_HORN_UPPER
-        } else {
-            CHAR_U_HORN_LOWER
-        };
-        return Some(format!("{}{}", word, u_horn));
+        // Chuẩn OpenKey (_standaloneWbad và _doubleWAllowed):
+        // Chỉ các phụ âm tiếng Việt hợp lệ mới được nhận 'w' thành phụ âm + 'ư' (ví dụ: 'rw' -> 'rư', 'thw' -> 'thư')
+        // Tuyệt đối không cho phép 'w', 'ww' nhận 'w' thành 'wư' (tránh gõ 'www' ra 'wư')!
+        let lower = word.to_ascii_lowercase();
+        let is_valid_lead = matches!(
+            lower.as_str(),
+            "b" | "c" | "d" | "đ" | "g" | "h" | "l" | "m" | "n" | "r" | "s" | "t" | "v" | "x"
+            | "th" | "tr" | "ch" | "nh" | "ng" | "kh" | "ph" | "gh"
+        );
+        if is_valid_lead {
+            let u_horn = if is_key_upper {
+                CHAR_U_HORN_UPPER
+            } else {
+                CHAR_U_HORN_LOWER
+            };
+            return Some(format!("{}{}", word, u_horn));
+        }
+        return None;
     }
 
     if !free_marking && !decomp.trail.is_empty() {

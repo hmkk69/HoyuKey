@@ -801,14 +801,22 @@ mod tests {
         // Standalone 'w' -> 'ư', double 'w' ('ww') -> 'w' (KHÔNG PHẢI 'uw')
         assert_eq!(type_single_word(&mut engine, "w"), "ư");
         assert_eq!(type_single_word(&mut engine, "ww"), "w");
+        assert_eq!(type_single_word(&mut engine, "www"), "ww");
+        assert_eq!(type_single_word(&mut engine, "wwww"), "www");
         assert_eq!(type_single_word(&mut engine, "W"), "Ư");
         assert_eq!(type_single_word(&mut engine, "WW"), "W");
         // 'rw' -> 'rư', 'rww' -> 'rw'
         assert_eq!(type_single_word(&mut engine, "rw"), "rư");
         assert_eq!(type_single_word(&mut engine, "rww"), "rw");
-        // 'uw' -> 'ư', 'uww' -> 'uw' (khi đã có 'u' rõ ràng)
+        // 'uw' -> 'ư', 'uww' -> 'uw' (khi đã có 'u' rõ ràng thì thoát về 'uw')
         assert_eq!(type_single_word(&mut engine, "uw"), "ư");
         assert_eq!(type_single_word(&mut engine, "uww"), "uw");
+        // 'ruw' -> 'rư', 'ruww' -> 'ruw'
+        assert_eq!(type_single_word(&mut engine, "ruw"), "rư");
+        assert_eq!(type_single_word(&mut engine, "ruww"), "ruw");
+
+        // Gõ câu chứa khoảng trắng và 'u ww':
+        assert_eq!(type_sentence(&mut engine, "u ww"), "u w");
 
         // Gõ từ có nguyên âm ghép và phụ âm chuẩn:
         assert_eq!(type_single_word(&mut engine, "vaanx"), "vẫn");
