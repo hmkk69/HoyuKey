@@ -168,6 +168,12 @@ impl Engine {
                 self.has_transformed = false;
                 self.raw_keys.clear();
                 self.history.clear();
+            } else {
+                // Tự động kiểm tra lại trạng thái biến đổi sau khi xóa ký tự
+                self.has_transformed = has_vietnamese_diacritic(&self.current_word);
+                if !self.has_transformed {
+                    self.raw_keys = self.current_word.clone();
+                }
             }
         } else if self.spaces_after_word > 0 {
             self.spaces_after_word -= 1;
@@ -381,10 +387,11 @@ pub fn should_auto_restore_english(candidate_with_ch: &str, candidate_restored: 
         return true;
     }
 
-    // 3. Nếu chuỗi phím gốc (raw) hoặc từ hiển thị kết thúc bằng cụm phụ âm tiếng Anh đặc trưng:
+    // 3. Nếu chuỗi phím gốc (raw) hoặc từ hiển thị kết thúc bằng cụm phụ âm/hậu tố tiếng Anh đặc trưng:
     let english_ending_clusters = [
         "st", "sk", "sp", "ft", "ct", "pt", "lt", "mp", "nd", "nk", "nt",
         "rk", "rd", "rm", "rn", "rp", "rs", "tch", "ts", "ff", "ss", "ll", "ck", "sh",
+        "er", "re", "ce", "se", "ty", "ly", "ry", "al", "ment",
     ];
     for &cluster in &english_ending_clusters {
         if lower_raw.ends_with(cluster) || lower_disp.ends_with(cluster) {
@@ -717,5 +724,109 @@ mod tests {
 
         engine.process_char('g', &config);
         assert_eq!(engine.current_word, "toag");
+    }
+
+    #[test]
+    fn test_production_stress_test_matrix() {
+        let mut engine = Engine::new();
+        let config = TypingConfig::default();
+
+        let type_sentence = |engine: &mut Engine, input: &str| -> String {
+            engine.reset();
+            let mut out = String::new();
+            for c in input.chars() {
+                if is_word_boundary(c) {
+                    engine.process_char(c, &config);
+                    out.push(c);
+                } else {
+                    let action = engine.process_char(c, &config);
+                    match action {
+                        KeyAction::PassThrough => {
+                            out.push(c);
+                        }
+                        KeyAction::Transform { backspaces, text } => {
+                            for _ in 0..backspaces {
+                                out.pop();
+                            }
+                            out.push_str(&text);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            out
+        };
+
+        let type_single_word = |engine: &mut Engine, input: &str| -> String {
+            engine.reset();
+            for c in input.chars() {
+                engine.process_char(c, &config);
+            }
+            engine.current_word.clone()
+        };
+
+        // 0. Full Stress Test Sentence (Chữ thường):
+        let input_lowercase = "Chafng trai hoawngx quowrn khuyuj xuoongs, ngoeor coor ngoast mieengj khuays nooid banhs chuwng, hoan hir ngawsm chuoongf hoawngx vaf xooong ngoawngx.";
+        let expected_lowercase = "Chàng trai hoẵng quởn khuỵu xuống, ngoẻo cổ ngoát miệng khuấy nồi bánh chưng, hoan hỉ ngắm chuồng hoẵng và xoong ngoẵng.";
+        assert_eq!(type_sentence(&mut engine, input_lowercase), expected_lowercase);
+
+        // 0. Full Stress Test Sentence (CapsLock):
+        let input_capslock = "CHAFNG TRAI HOAWNGX QUOWRN KHUYUJ XUOONGS, NGOEOR COOR NGOAST MIEENGJ KHUAYS NOOID BANHS CHUWNG, HOAN HIR NGAWSM CHUOONGF HOAWNGX VAF XOOONG NGOAWNGX.";
+        let expected_capslock = "CHÀNG TRAI HOẴNG QUỞN KHUỴU XUỐNG, NGOẺO CỔ NGOÁT MIỆNG KHUẤY NỒI BÁNH CHƯNG, HOAN HỈ NGẮM CHUỒNG HOẴNG VÀ XOONG NGOẮNG.";
+        assert_eq!(type_sentence(&mut engine, input_capslock), expected_capslock);
+
+        // 1. Các từ bẫy âm ghép dài & phức tạp:
+        assert_eq!(type_single_word(&mut engine, "hoawngx"), "hoẵng");
+        assert_eq!(type_single_word(&mut engine, "ngoawngx"), "ngoẵng");
+        assert_eq!(type_single_word(&mut engine, "khuyuj"), "khuỵu");
+        assert_eq!(type_single_word(&mut engine, "ngoeor"), "ngoẻo");
+        assert_eq!(type_single_word(&mut engine, "thuowr"), "thuở");
+        assert_eq!(type_single_word(&mut engine, "xooong"), "xoong");
+        assert_eq!(type_single_word(&mut engine, "xoong"), "xông");
+
+        // 2. Gõ hoa trộn lẫn (Shift + CapsLock):
+        assert_eq!(type_single_word(&mut engine, "Quangr"), "Quảng");
+        assert_eq!(type_single_word(&mut engine, "Bachj"), "Bạch");
+        assert_eq!(type_single_word(&mut engine, "Dduowngf"), "Đường");
+
+        // CapsLock toàn bộ:
+        assert_eq!(type_single_word(&mut engine, "DDUOWNGF"), "ĐƯỜNG");
+        assert_eq!(type_single_word(&mut engine, "TRUWOWNGF"), "TRƯỜNG");
+        assert_eq!(type_single_word(&mut engine, "HOAWNGX"), "HOẴNG");
+
+        // 3. Thoát dấu lặp phím:
+        assert_eq!(type_single_word(&mut engine, "ddd"), "dd");
+        assert_eq!(type_single_word(&mut engine, "toanss"), "toans");
+
+        // 4. Backspace không mất dấu:
+        // "toans" -> "toán", xóa 1 ký tự -> "toá", gõ 'm' -> "toám"
+        engine.reset();
+        for c in "toans".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "toán");
+        engine.handle_backspace(false);
+        assert_eq!(engine.current_word, "toá");
+        engine.process_char('m', &config);
+        assert_eq!(engine.current_word, "toám");
+
+        // "tiếng" -> backspace từng ký tự về đầu không crash
+        engine.reset();
+        for c in "tieengs".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "tiếng");
+        for _ in 0..5 {
+            engine.handle_backspace(false);
+        }
+        assert_eq!(engine.current_word, "");
+        assert_eq!(engine.raw_keys, "");
+        assert!(!engine.has_transformed);
+
+        // 5. Tiếng Anh / Code không bị dính dấu:
+        assert_eq!(type_single_word(&mut engine, "user"), "user");
+        assert_eq!(type_single_word(&mut engine, "process"), "process");
+        assert_eq!(type_single_word(&mut engine, "commit"), "commit");
+        assert_eq!(type_single_word(&mut engine, "install"), "install");
     }
 }

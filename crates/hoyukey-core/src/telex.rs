@@ -278,11 +278,41 @@ fn handle_w_key(
         return None;
     }
 
-    // 1. Kiểm tra cặp "uo" -> biến cả hai thành "ươ"
+    // 1. Kiểm tra cặp "oa" -> biến 'a' thành 'ă' (oă: hoẵng, ngoẵng, hoặc, xoăn...)
+    // Trong tiếng Việt, 'oa' + 'w' LUÔN LUÔN là 'oă', tuyệt đối không bao giờ là 'ơa'!
+    if !simple_telex && decomp.vowels.len() >= 2 {
+        for i in 0..(decomp.vowels.len() - 1) {
+            if decomp.vowels[i].base == 'o' && decomp.vowels[i + 1].base == 'a' {
+                if decomp.vowels[i + 1].vmod == VowelMod::Breve {
+                    decomp.vowels[i + 1].vmod = VowelMod::None;
+                    let base_word = decomp.recompose();
+                    let append_w = if is_key_upper { 'W' } else { 'w' };
+                    return Some(format!("{}{}", base_word, append_w));
+                } else {
+                    decomp.vowels[i + 1].vmod = VowelMod::Breve;
+                    return Some(decomp.recompose());
+                }
+            }
+        }
+    }
+
+    // 2. Kiểm tra cặp "uo" -> biến thành "ươ" (hoặc "thuở" nếu bắt đầu bằng "th")
     if !simple_telex && decomp.vowels.len() >= 2 {
         for i in 0..(decomp.vowels.len() - 1) {
             if decomp.vowels[i].base == 'u' && decomp.vowels[i + 1].base == 'o' {
-                if decomp.vowels[i].vmod == VowelMod::Horn
+                let is_thuo = decomp.lead == "th" && decomp.trail.is_empty();
+                if is_thuo {
+                    // Từ "thuở" duy nhất trong tiếng Việt: u giữ nguyên, chỉ o thành ơ
+                    if decomp.vowels[i + 1].vmod == VowelMod::Horn {
+                        decomp.vowels[i + 1].vmod = VowelMod::None;
+                        let base_word = decomp.recompose();
+                        let append_w = if is_key_upper { 'W' } else { 'w' };
+                        return Some(format!("{}{}", base_word, append_w));
+                    } else {
+                        decomp.vowels[i + 1].vmod = VowelMod::Horn;
+                        return Some(decomp.recompose());
+                    }
+                } else if decomp.vowels[i].vmod == VowelMod::Horn
                     && decomp.vowels[i + 1].vmod == VowelMod::Horn
                 {
                     decomp.vowels[i].vmod = VowelMod::None;
@@ -299,7 +329,7 @@ fn handle_w_key(
         }
     }
 
-    // 2. Kiểm tra 'u' -> 'ư'
+    // 3. Kiểm tra 'u' -> 'ư'
     for v in decomp.vowels.iter_mut() {
         if v.base == 'u' {
             if v.vmod == VowelMod::Horn {
@@ -314,7 +344,7 @@ fn handle_w_key(
         }
     }
 
-    // 3. Kiểm tra 'o' -> 'ơ'
+    // 4. Kiểm tra 'o' -> 'ơ'
     if !simple_telex {
         for v in decomp.vowels.iter_mut() {
             if v.base == 'o' {
@@ -331,7 +361,7 @@ fn handle_w_key(
         }
     }
 
-    // 4. Kiểm tra 'a' -> 'ă'
+    // 5. Kiểm tra 'a' -> 'ă'
     if !simple_telex {
         for v in decomp.vowels.iter_mut() {
             if v.base == 'a' {
