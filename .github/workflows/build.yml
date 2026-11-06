@@ -24,9 +24,9 @@ jobs:
         id: ver
         run: |
           RUN_NUM=${{ github.run_number }}
-          OFFSET=60
-          PATCH=$(( RUN_NUM > OFFSET ? RUN_NUM - OFFSET : 0 ))
-          VERSION="1.0.$PATCH"
+          OFFSET=157
+          PATCH=$(( RUN_NUM >= OFFSET ? RUN_NUM - OFFSET : 0 ))
+          VERSION="1.1.$PATCH"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "patch=$PATCH" >> $GITHUB_OUTPUT
           echo "Calculated version: $VERSION (Build #$PATCH, Run #$RUN_NUM)"
