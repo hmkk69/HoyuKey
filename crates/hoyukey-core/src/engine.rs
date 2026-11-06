@@ -281,12 +281,22 @@ impl Engine {
             if new_word != self.current_word {
                 let delta = compute_minimal_delta(&self.current_word, &new_word);
                 self.current_word = new_word.clone();
-                self.raw_keys.push(ch);
-                self.has_transformed = true;
+
+                let is_still_transformed = has_vietnamese_diacritic(&self.current_word);
+                if is_still_transformed {
+                    self.raw_keys.push(ch);
+                    self.has_transformed = true;
+                } else {
+                    // Người dùng gõ phím lặp lại để thoát dấu (ví dụ: 'té' + 's' -> 'tes', 'đ' + 'd' -> 'dd', 'â' + 'a' -> 'aa')
+                    // Đồng bộ lại raw_keys và tắt trạng thái has_transformed để không bị auto-restore sai lệch!
+                    self.raw_keys = self.current_word.clone();
+                    self.has_transformed = false;
+                }
+
                 self.history.push(EngineStep {
                     display_word: self.current_word.clone(),
                     raw_keys: self.raw_keys.clone(),
-                    has_transformed: true,
+                    has_transformed: self.has_transformed,
                 });
 
                 return KeyAction::Transform {
@@ -417,7 +427,13 @@ pub fn is_word_boundary(c: char) -> bool {
     )
 }
 
-/// Kiá»ƒm tra Ã¢m tiáº¿t tiáº¿ng Viá»‡t há»£p lá»‡ (dÃ¹ng cho automation / spellcheck)
+/// Kiểm tra xem một chuỗi có chứa bất kỳ ký tự tiếng Việt có dấu nào không (non-ASCII > 127)
+#[inline]
+pub fn has_vietnamese_diacritic(word: &str) -> bool {
+    word.chars().any(|c| (c as u32) > 127)
+}
+
+/// Kiểm tra âm tiết tiếng Việt hợp lệ (dùng cho automation / spellcheck)
 pub fn is_valid_vietnamese_syllable(word: &str) -> bool {
     is_valid_vietnamese_phonotactics(word)
 }
@@ -636,6 +652,54 @@ mod tests {
             engine.process_char(c, &config);
         }
         assert_eq!(engine.current_word, "toans");
+    }
+
+    #[test]
+    fn test_engine_english_auto_restore_and_escapes() {
+        let mut engine = Engine::new();
+        let config = TypingConfig::default();
+
+        // 1. "test" gõ trực tiếp t-e-s-t: s tạo 'té', t kích hoạt auto-restore về "test"
+        for c in "test".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "test");
+        assert!(!engine.has_transformed);
+        assert_eq!(engine.raw_keys, "test");
+        engine.reset();
+
+        // 2. "test" gõ theo kiểu double-tap s: t-e-s-s-t
+        // t-e -> "te"
+        // s -> "té"
+        // s -> "tes" (thoát dấu sắc, không bị biến thành 'tess')
+        // t -> "test" (không bị auto-restore thành 'tesst')
+        for c in "tesst".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "test");
+        assert!(!engine.has_transformed);
+        assert_eq!(engine.raw_keys, "test");
+        engine.reset();
+
+        // 3. "fast" -> f-a-s-t
+        for c in "fast".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "fast");
+        engine.reset();
+
+        // 4. "react" -> r-e-a-c-t
+        for c in "react".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "react");
+        engine.reset();
+
+        // 5. "task" -> t-a-s-k
+        for c in "task".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "task");
     }
 
     #[test]
