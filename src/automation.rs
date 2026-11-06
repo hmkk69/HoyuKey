@@ -346,28 +346,111 @@ fn get_win32_edit_caret_word(fg: HWND) -> Option<CaretWordContext> {
     }
 }
 
-static UIA_INSTANCE: std::sync::Mutex<Option<usize>> = std::sync::Mutex::new(None);
+thread_local! {
+    static LOCAL_UIA: std::cell::RefCell<Option<usize>> = const { std::cell::RefCell::new(None) };
+}
 
-fn get_cached_uia() -> Option<*mut c_void> {
-    let mut lock = UIA_INSTANCE.lock().ok()?;
-    if let Some(ptr_val) = *lock {
-        return Some(ptr_val as *mut c_void);
-    }
+fn get_thread_uia() -> Option<*mut c_void> {
+    LOCAL_UIA.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        if let Some(ptr_val) = *opt {
+            return Some(ptr_val as *mut c_void);
+        }
+        unsafe {
+            let _ = CoInitializeEx(null_mut(), COINIT_APARTMENTTHREADED as u32);
+            let mut uia_raw: *mut c_void = null_mut();
+            let hr = CoCreateInstance(
+                &CUIAutomation,
+                null_mut(),
+                CLSCTX_INPROC_SERVER,
+                &IID_IUI_AUTOMATION,
+                &mut uia_raw as *mut _ as *mut *mut c_void,
+            );
+            if hr >= 0 && !uia_raw.is_null() {
+                *opt = Some(uia_raw as usize);
+                Some(uia_raw)
+            } else {
+                None
+            }
+        }
+    })
+}
+
+/// Kiểm tra xem ô nhập liệu hiện tại của trình duyệt có đang bôi đen vùng chọn gợi ý (inline autocomplete selection) hay không.
+/// Được sử dụng cho tính năng Tối ưu trình duyệt (Browser compatibility):
+/// Khi người dùng gõ trên thanh địa chỉ (Omnibox) của Chrome, Edge, Brave, Cốc Cốc, trình duyệt sẽ tự động bôi đen
+/// đoạn gợi ý (ví dụ: gõ "d" -> gợi ý "ocs.google.com" bị bôi đen). Khi đó, phím Backspace đầu tiên sẽ xóa vùng chọn
+/// này thay vì xóa ký tự "d". Ta cần gửi thêm 1 Backspace để xóa sạch cả vùng chọn lẫn ký tự cần biến đổi.
+pub fn is_browser_selection_active() -> bool {
     unsafe {
-        let _ = CoInitializeEx(null_mut(), COINIT_APARTMENTTHREADED as u32);
-        let mut uia_raw: *mut c_void = null_mut();
-        let hr = CoCreateInstance(
-            &CUIAutomation,
-            null_mut(),
-            CLSCTX_INPROC_SERVER,
-            &IID_IUI_AUTOMATION,
-            &mut uia_raw as *mut _ as *mut *mut c_void,
-        );
-        if hr >= 0 && !uia_raw.is_null() {
-            *lock = Some(uia_raw as usize);
-            Some(uia_raw)
+        let hwnd_fg = GetForegroundWindow();
+        if hwnd_fg.is_null() || IsHungAppWindow(hwnd_fg) != 0 {
+            return false;
+        }
+
+        let uia_raw = match get_thread_uia() {
+            Some(p) => p,
+            None => return false,
+        };
+        let uia = &**(uia_raw as *mut *mut IUIAutomationVtbl);
+
+        let mut elem_raw: *mut c_void = null_mut();
+        let hr = (uia.GetFocusedElement)(uia_raw, &mut elem_raw);
+        if hr < 0 || elem_raw.is_null() {
+            return false;
+        }
+        let elem = match ComPtr::<IUIAutomationElementVtbl>::new(elem_raw) {
+            Some(e) => e,
+            None => return false,
+        };
+
+        let mut pat_raw: *mut c_void = null_mut();
+        let mut hr = (elem.vtbl().GetCurrentPattern)(elem.as_ptr(), UIA_TEXT_PATTERN_ID, &mut pat_raw);
+        if hr < 0 || pat_raw.is_null() {
+            hr = (elem.vtbl().GetCurrentPattern)(elem.as_ptr(), 10024, &mut pat_raw);
+        }
+        if hr < 0 || pat_raw.is_null() {
+            return false;
+        }
+        let text_pat = match ComPtr::<IUIAutomationTextPatternVtbl>::new(pat_raw) {
+            Some(p) => p,
+            None => return false,
+        };
+
+        let mut ranges_raw: *mut c_void = null_mut();
+        let hr = (text_pat.vtbl().GetSelection)(text_pat.as_ptr(), &mut ranges_raw);
+        if hr < 0 || ranges_raw.is_null() {
+            return false;
+        }
+        let ranges = match ComPtr::<IUIAutomationTextRangeArrayVtbl>::new(ranges_raw) {
+            Some(r) => r,
+            None => return false,
+        };
+
+        let mut count: i32 = 0;
+        let hr = (ranges.vtbl().get_Length)(ranges.as_ptr(), &mut count);
+        if hr < 0 || count <= 0 {
+            return false;
+        }
+
+        let mut caret_range_raw: *mut c_void = null_mut();
+        let hr = (ranges.vtbl().GetElement)(ranges.as_ptr(), 0, &mut caret_range_raw);
+        if hr < 0 || caret_range_raw.is_null() {
+            return false;
+        }
+        let caret_range = match ComPtr::<IUIAutomationTextRangeVtbl>::new(caret_range_raw) {
+            Some(c) => c,
+            None => return false,
+        };
+
+        let mut bstr: *mut u16 = null_mut();
+        let hr = (caret_range.vtbl().GetText)(caret_range.as_ptr(), -1, &mut bstr);
+        if hr >= 0 && !bstr.is_null() {
+            let len = SysStringLen(bstr);
+            SysFreeString(bstr);
+            len > 0
         } else {
-            None
+            false
         }
     }
 }
@@ -389,7 +472,7 @@ fn get_uia_caret_word() -> Option<CaretWordContext> {
             hwnd_fg
         };
 
-        let uia_raw = get_cached_uia()?;
+        let uia_raw = get_thread_uia()?;
         let uia = &**(uia_raw as *mut *mut IUIAutomationVtbl);
 
         let mut elem_raw: *mut c_void = null_mut();

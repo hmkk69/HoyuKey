@@ -1031,17 +1031,40 @@ unsafe fn is_focused_in_web_content() -> bool {
 unsafe fn send_transform_batch(
     backspaces: usize,
     text: &str,
-    _has_space_before: bool,
-    _browser_compatibility: bool,
-    _browser_apps: &str,
+    has_space_before: bool,
+    browser_compatibility: bool,
+    browser_apps: &str,
 ) {
     if backspaces == 0 && text.is_empty() {
         return;
     }
 
-    // Gửi chính xác số lượng backspaces cần thiết.
-    // TUYỆT ĐỐI không tự ý cộng thêm backspaces để tránh nuốt mất dấu cách, ký tự mở ngoặc hoặc chữ cái đằng trước.
-    send_replace_batch(0, backspaces, text);
+    // Tối ưu trình duyệt (Chrome, Edge, Brave, Cốc Cốc, Opera...):
+    // Khi gõ trên thanh địa chỉ (Omnibox), trình duyệt tự động kích hoạt inline autocomplete và bôi đen gợi ý.
+    // Nếu có gợi ý đang bôi đen, phím Backspace đầu tiên sẽ xóa vùng chọn bôi đen đó.
+    // Do đó, ta gửi thêm 1 Backspace (backspaces + 1) để xóa sạch cả vùng chọn lẫn ký tự cần thay thế.
+    // TUYỆT ĐỐI chỉ kích hoạt khi:
+    // 1. Tính năng browser_compatibility được bật.
+    // 2. Có ít nhất 1 backspace cần xóa (backspaces > 0).
+    // 3. Chưa có khoảng trắng phía trước (!has_space_before).
+    // 4. Ứng dụng hiện tại là trình duyệt nằm trong danh sách.
+    // 5. Kiểm tra thực tế xác nhận có vùng chọn gợi ý đang active (tránh nuốt ký tự trong web content).
+    let extra_backspace = if browser_compatibility
+        && backspaces > 0
+        && !has_space_before
+        && is_foreground_browser_app(browser_apps)
+    {
+        if crate::automation::is_browser_selection_active() {
+            1
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let total_backspaces = backspaces + extra_backspace;
+    send_replace_batch(0, total_backspaces, text);
 }
 
 const CF_UNICODETEXT: u32 = 13;
