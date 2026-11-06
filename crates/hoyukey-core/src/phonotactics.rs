@@ -294,11 +294,31 @@ pub fn is_english_foreign_word(word: &str) -> bool {
     vowel_groups > 1
 }
 
-/// Kiá»ƒm tra tÃ­nh há»£p lá»‡ cá»§a Ã¢m tiáº¿t tiáº¿ng Viá»‡t Ä‘á»™ng (Dynamic Vietnamese Syllable Check).
-/// KhÃ´ng dÃ¹ng tá»« Ä‘iá»ƒn! Kiá»ƒm tra luáº­t ngá»¯ Ã¢m:
-/// - Phá»¥ Ã¢m Ä‘áº§u pháº£i thuá»™c cÃ¡c phá»¥ Ã¢m tiáº¿ng Viá»‡t.
-/// - Phá»¥ Ã¢m cuá»‘i pháº£i thuá»™c: c, ch, m, n, ng, nh, p, t (hoáº·c rá»—ng).
-/// - Luáº­t thanh Ä‘iá»‡u Ã¢m táº¯c: Náº¿u káº¿t thÃºc báº±ng c, ch, p, t thÃ¬ CHá»ˆ Ä‘Æ°á»£c mang thanh Sáº¯c hoáº·c Náº·ng.
+/// Kiểm tra xem từ có chứa nhiều hơn 1 cụm nguyên âm tách biệt hay không (đặc trưng từ tiếng Anh đa âm tiết: com-pu-ter, re-lease, sys-tem)
+pub fn has_multiple_vowel_clusters(word: &str) -> bool {
+    let lower = word.to_lowercase();
+    let mut vowel_groups = 0;
+    let mut in_vowel = false;
+
+    for c in lower.chars() {
+        if is_vietnamese_vowel_char(c) {
+            if !in_vowel {
+                vowel_groups += 1;
+                in_vowel = true;
+            }
+        } else {
+            in_vowel = false;
+        }
+    }
+
+    vowel_groups > 1
+}
+
+/// Kiểm tra tính hợp lệ của âm tiết tiếng Việt động (Dynamic Vietnamese Syllable Check).
+/// Không dùng từ điển! Kiểm tra luật ngữ âm:
+/// - Phụ âm đầu phải thuộc các phụ âm tiếng Việt.
+/// - Phụ âm cuối phải thuộc: c, ch, m, n, ng, nh, p, t (hoặc rỗng).
+/// - Luật thanh điệu âm tắc: Nếu kết thúc bằng c, ch, p, t thì CHỈ được mang thanh Sắc hoặc Nặng.
 pub fn is_valid_vietnamese_phonotactics(word: &str) -> bool {
     let lower = word.to_lowercase();
     let decomposed = match decompose_word(&lower) {
@@ -306,15 +326,15 @@ pub fn is_valid_vietnamese_phonotactics(word: &str) -> bool {
         None => return false,
     };
 
-    // Náº¿u khÃ´ng cÃ³ nguyÃªn Ã¢m nÃ o thÃ¬ chÆ°a pháº£i Ã¢m tiáº¿t hoÃ n chá»‰nh
+    // Nếu không có nguyên âm nào thì chưa phải âm tiết hoàn chỉnh
     if decomposed.vowels.is_empty() {
         return true;
     }
 
-    // Kiá»ƒm tra phá»¥ Ã¢m Ä‘áº§u
+    // Kiểm tra phụ âm đầu
     if !decomposed.lead.is_empty() {
         let valid_leads = [
-            "b", "c", "d", "\u{0111}", "g", "gh", "gi", "h", "k", "kh", "l", "m", "n", "ng", "ngh", "nh",
+            "b", "c", "ch", "d", "\u{0111}", "g", "gh", "gi", "h", "k", "kh", "l", "m", "n", "ng", "ngh", "nh",
             "p", "ph", "qu", "r", "s", "t", "th", "tr", "v", "x",
         ];
         if !valid_leads.contains(&decomposed.lead.as_str()) {
@@ -322,14 +342,14 @@ pub fn is_valid_vietnamese_phonotactics(word: &str) -> bool {
         }
     }
 
-    // Kiá»ƒm tra phá»¥ Ã¢m cuá»‘i
+    // Kiểm tra phụ âm cuối
     if !decomposed.trail.is_empty() {
         let valid_trails = ["c", "ch", "m", "n", "ng", "nh", "p", "t"];
         if !valid_trails.contains(&decomposed.trail.as_str()) {
             return false;
         }
 
-        // Luáº­t thanh Ä‘iá»‡u Ã¢m táº¯c: c, ch, p, t chá»‰ Ä‘i vá»›i Sáº¯c hoáº·c Náº·ng
+        // Luật thanh điệu âm tắc: c, ch, p, t chỉ đi với Sắc hoặc Nặng
         if matches!(decomposed.trail.as_str(), "c" | "ch" | "p" | "t") {
             let tone = decomposed.current_tone();
             if matches!(tone, Tone::Grave | Tone::Hook | Tone::Tilde) {

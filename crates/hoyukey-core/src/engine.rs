@@ -3,7 +3,7 @@
 
 use crate::config::{InputMethod, TypingConfig};
 use crate::delta::compute_minimal_delta;
-use crate::phonotactics::{is_english_foreign_word, is_valid_vietnamese_phonotactics};
+use crate::phonotactics::is_valid_vietnamese_phonotactics;
 use crate::telex;
 use crate::vni;
 
@@ -296,17 +296,14 @@ impl Engine {
             }
         }
 
-        // 4. KhÃ´ng biáº¿n Ä‘á»•i: Kiá»ƒm tra tá»± Ä‘á»™ng khÃ´i phá»¥c tiáº¿ng Anh (Auto-Restore)
-        // Náº¿u trÆ°á»›c Ä‘Ã³ tá»« Ä‘Ã£ tá»«ng biáº¿n Ä‘á»•i (vÃ­ dá»¥ 'fas' -> 'fÃ¡s'), nhÆ°ng khi gÃµ tiáº¿p kÃ½ tá»± nÃ y
-        // thÃ¬ tá»« trá»Ÿ nÃªn khÃ´ng há»£p lá»‡ trong tiáº¿ng Viá»‡t (vÃ­ dá»¥ 'fÃ¡st' cÃ³ Ä‘uÃ´i st tiáº¿ng Anh)
+        // 4. Không biến đổi: Kiểm tra tự động khôi phục tiếng Anh (Auto-Restore)
+        // Chỉ kích hoạt khi từ hiển thị mang đặc trưng tiếng Anh hoặc chứa cụm phụ âm tiếng Anh (fast, test, react, system...)
+        // TUYỆT ĐỐI không khôi phục nhầm các từ tiếng Việt như 'ưu' (u-w-u) hay 'đay' (d-a-d-y)
         if config.auto_restore && self.has_transformed {
             let candidate_restored = format!("{}{}", self.raw_keys, ch);
             let candidate_with_ch = format!("{}{}", self.current_word, ch);
 
-            if is_english_foreign_word(&candidate_restored)
-                || is_english_foreign_word(&candidate_with_ch)
-                || !is_valid_vietnamese_phonotactics(&candidate_with_ch)
-            {
+            if should_auto_restore_english(&candidate_with_ch, &candidate_restored) {
                 let delta = compute_minimal_delta(&self.current_word, &candidate_restored);
                 self.current_word = candidate_restored.clone();
                 self.raw_keys = candidate_restored.clone();
@@ -348,7 +345,58 @@ impl Engine {
     }
 }
 
-/// Kiá»ƒm tra xem biáº¿n Ä‘á»•i cÃ³ xáº£y ra hoÃ n toÃ n á»Ÿ phÃ­a sau con trá»  (dÃ¹ng cho dynamic caret UI Automation)
+/// Kiểm tra xem có cần khôi phục lại chuỗi tiếng Anh hay không (Auto-Restore)
+pub fn should_auto_restore_english(candidate_with_ch: &str, candidate_restored: &str) -> bool {
+    let lower_disp = candidate_with_ch.to_lowercase();
+    let lower_raw = candidate_restored.to_lowercase();
+
+    // 1. Nếu từ hiển thị bắt đầu bằng phụ âm ngoại lai không có trong tiếng Việt:
+    // f, j, z, hoặc w + nguyên âm (web, win, wifi)
+    if let Some(first) = lower_disp.chars().next() {
+        if matches!(first, 'f' | 'j' | 'z') {
+            return true;
+        }
+        if first == 'w' && lower_disp.chars().count() > 1 {
+            if let Some(second) = lower_disp.chars().nth(1) {
+                if crate::phonotactics::is_vietnamese_vowel_char(second) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 2. Nếu từ hiển thị có nhiều hơn 1 cụm nguyên âm tách biệt (từ đa âm tiết tiếng Anh):
+    // re-lease, sys-tem, sta-tus, com-pu-ter, in-ter-net...
+    if crate::phonotactics::has_multiple_vowel_clusters(&lower_disp) {
+        return true;
+    }
+
+    // 3. Nếu chuỗi phím gốc (raw) hoặc từ hiển thị kết thúc bằng cụm phụ âm tiếng Anh đặc trưng:
+    let english_ending_clusters = [
+        "st", "sk", "sp", "ft", "ct", "pt", "lt", "mp", "nd", "nk", "nt",
+        "rk", "rd", "rm", "rn", "rp", "rs", "tch", "ts", "ff", "ss", "ll", "ck", "sh",
+    ];
+    for &cluster in &english_ending_clusters {
+        if lower_raw.ends_with(cluster) || lower_disp.ends_with(cluster) {
+            return true;
+        }
+    }
+
+    // 4. Nếu chuỗi phím gốc hoặc từ hiển thị bắt đầu bằng cụm phụ âm tiếng Anh đặc trưng:
+    let english_starting_clusters = [
+        "str", "spr", "spl", "scr", "br", "cr", "dr", "fr", "gr", "pr",
+        "cl", "fl", "gl", "pl", "sl", "sc", "sk", "sm", "sn", "sp", "st", "sw", "tw", "wr",
+    ];
+    for &cluster in &english_starting_clusters {
+        if lower_raw.starts_with(cluster) || lower_disp.starts_with(cluster) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Kiểm tra xem biến đổi có xảy ra hoàn toàn ở phía sau con trỏ (dùng cho dynamic caret UI Automation)
 pub fn is_modification_behind_caret(post_word: &str, new_word: &str) -> bool {
     let post_len = post_word.chars().count();
     let new_chars: Vec<char> = new_word.chars().collect();
@@ -485,6 +533,39 @@ mod tests {
             engine.process_char(c, &config);
         }
         assert_eq!(engine.current_word, "thuyền");
+    }
+
+    #[test]
+    fn test_engine_user_reported_cases() {
+        let mut engine = Engine::new();
+        let config = TypingConfig::default();
+
+        // 1. "chỉ" -> c, h, i, r
+        for c in "chir".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "chỉ");
+        engine.reset();
+
+        // 2. "ưu" -> u, w, u
+        for c in "uwu".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "ưu");
+        engine.reset();
+
+        // 3. "đay" -> d, a, d, y
+        for c in "dady".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "đay");
+        engine.reset();
+
+        // 4. "đây" -> d, d, a, y
+        for c in "dday".chars() {
+            engine.process_char(c, &config);
+        }
+        assert_eq!(engine.current_word, "đây");
     }
 
     #[test]

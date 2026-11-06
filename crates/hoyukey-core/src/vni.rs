@@ -1,9 +1,7 @@
 // hoyukey-core: Dynamic VNI Transformation Engine
 // Thuật toán biến đổi phím VNI dựa trên hình vị học động (Zero-dependency, không dùng từ điển).
 
-use crate::phonotactics::{
-    decompose_word, is_english_foreign_word, is_valid_vietnamese_phonotactics,
-};
+use crate::phonotactics::{decompose_word, is_english_foreign_word};
 use crate::telex::{CHAR_D_STROKE_LOWER, CHAR_D_STROKE_UPPER};
 use crate::vietnamese::{Tone, VowelMod};
 
@@ -71,8 +69,10 @@ fn handle_vni_tone(word: &str, key: char, modern_tone: bool, free_marking: bool)
     decomp.apply_tone(target_tone, modern_tone);
     let new_word = decomp.recompose();
 
-    if !is_valid_vietnamese_phonotactics(&new_word) {
-        return None;
+    if matches!(decomp.trail.as_str(), "c" | "ch" | "p" | "t") {
+        if matches!(target_tone, Tone::Grave | Tone::Hook | Tone::Tilde) {
+            return None;
+        }
     }
 
     Some(new_word)

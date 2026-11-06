@@ -1,9 +1,7 @@
 // hoyukey-core: Dynamic Telex Transformation Engine
 // Thuật toán biến đổi phím Telex dựa trên hình vị học động (Zero-dependency, không dùng từ điển).
 
-use crate::phonotactics::{
-    decompose_word, is_english_foreign_word, is_valid_vietnamese_phonotactics,
-};
+use crate::phonotactics::{decompose_word, is_english_foreign_word};
 use crate::vietnamese::{Tone, VowelMod};
 
 pub const CHAR_D_STROKE_LOWER: char = '\u{0111}'; // 'đ'
@@ -287,8 +285,11 @@ fn handle_tone_key(
     decomp.apply_tone(target_tone, modern_tone);
     let new_word = decomp.recompose();
 
-    if !is_valid_vietnamese_phonotactics(&new_word) {
-        return None;
+    // Kiểm tra quy tắc âm tắc: c, ch, p, t chỉ đi với Sắc hoặc Nặng
+    if matches!(decomp.trail.as_str(), "c" | "ch" | "p" | "t") {
+        if matches!(target_tone, Tone::Grave | Tone::Hook | Tone::Tilde) {
+            return None;
+        }
     }
 
     Some(new_word)
