@@ -407,11 +407,11 @@ pub fn is_modification_behind_caret(post_word: &str, new_word: &str) -> bool {
     new_chars[new_chars.len() - post_len..] == post_chars[..]
 }
 
-/// Kiá»ƒm tra kÃ½ tá»± ranh giá»›i tá»«
+/// Kiểm tra ký tự ranh giới từ (không bao gồm '[' và ']' vì dùng gõ chữ 'ư' và 'ơ' trong Telex)
 pub fn is_word_boundary(c: char) -> bool {
     c.is_whitespace() || matches!(
         c,
-        '.' | ',' | ';' | ':' | '!' | '?' | '(' | ')' | '[' | ']' | '{' | '}'
+        '.' | ',' | ';' | ':' | '!' | '?' | '(' | ')'
         | '<' | '>' | '/' | '\\' | '|' | '@' | '#' | '$' | '%' | '^' | '&'
         | '*' | '-' | '_' | '+' | '=' | '~' | '`' | '"' | '\''
     )
@@ -566,6 +566,46 @@ mod tests {
             engine.process_char(c, &config);
         }
         assert_eq!(engine.current_word, "đây");
+    }
+
+    #[test]
+    fn test_engine_bracket_shortcuts() {
+        let mut engine = Engine::new();
+        let config = TypingConfig::default();
+
+        // '[' -> 'ư'
+        engine.process_char('[', &config);
+        assert_eq!(engine.current_word, "ư");
+        // '[[' -> '['
+        engine.process_char('[', &config);
+        assert_eq!(engine.current_word, "[");
+        engine.reset();
+
+        // ']' -> 'ơ'
+        engine.process_char(']', &config);
+        assert_eq!(engine.current_word, "ơ");
+        // ']]' -> ']'
+        engine.process_char(']', &config);
+        assert_eq!(engine.current_word, "]");
+        engine.reset();
+
+        // 'b]' -> 'bơ'
+        engine.process_char('b', &config);
+        engine.process_char(']', &config);
+        assert_eq!(engine.current_word, "bơ");
+        engine.reset();
+
+        // 'du]' -> 'dươ'
+        engine.process_char('d', &config);
+        engine.process_char('u', &config);
+        engine.process_char(']', &config);
+        assert_eq!(engine.current_word, "dươ");
+        engine.reset();
+
+        // 't[' -> 'tư'
+        engine.process_char('t', &config);
+        engine.process_char('[', &config);
+        assert_eq!(engine.current_word, "tư");
     }
 
     #[test]

@@ -235,65 +235,6 @@ pub fn is_vietnamese_vowel_char(c: char) -> bool {
     decompose_vietnamese_char(c).is_some()
 }
 
-/// Kiá»ƒm tra xem tá»« cÃ³ pháº£i lÃ  tá»« tiáº¿ng Anh / ngoáº¡i quá»‘c dá»±a trÃªn quy táº¯c ngá»¯ Ã¢m há» c Ä‘á»™ng:
-/// 1. Báº¯t Ä‘áº§u báº±ng phá»¥ Ã¢m ngoáº¡i lai (f, j, z, hoáº·c w + nguyÃªn Ã¢m nhÆ° win, wifi, web)
-/// 2. Chá»©a cá»¥m phá»¥ Ã¢m ngoáº¡i lai á»Ÿ Ä‘áº§u (str, spr, br, cr, dr, fl, fr, gl, gr, pl, pr, sc, sk, sp, st, sw, tw...)
-/// 3. Chá»©a cá»¥m phá»¥ Ã¢m ngoáº¡i lai á»Ÿ cuá»‘i (st, ct, ft, lt, mp, nd, nk, nt, pt, rk, sk, sp, ss, ff, ll, ck, sh, tch, ts...)
-/// 4. Chá»©a nhiá» u hÆ¡n 1 cá»¥m nguyÃªn Ã¢m cÃ¡ch nhau bá»Ÿi phá»¥ Ã¢m (re-lease, com-pu-ter, sys-tem, sta-tus...)
-pub fn is_english_foreign_word(word: &str) -> bool {
-    let lower = word.to_lowercase();
-    let chars: Vec<char> = lower.chars().collect();
-    if chars.is_empty() {
-        return false;
-    }
-
-    // 1. KÃ½ tá»± Ä‘áº§u tiÃªn ngoáº¡i lai
-    if matches!(chars[0], 'f' | 'j' | 'z') {
-        return true;
-    }
-    if chars[0] == 'w' && chars.len() > 1 && is_vietnamese_vowel_char(chars[1]) {
-        return true;
-    }
-
-    // 2. Cá»¥m phá»¥ Ã¢m Ä‘áº§u tiáº¿ng Anh
-    let prefixes = [
-        "str", "spr", "spl", "scr", "br", "cr", "dr", "fr", "gr", "pr", "cl", "fl", "gl", "pl", "sl",
-        "sc", "sk", "sm", "sn", "sp", "st", "sw", "tw", "wr",
-    ];
-    for &p in &prefixes {
-        if lower.starts_with(p) {
-            return true;
-        }
-    }
-
-    // 3. Cá»¥m phá»¥ Ã¢m cuá»‘i tiáº¿ng Anh
-    let suffixes = [
-        "st", "ct", "ft", "lt", "mp", "nd", "nk", "nt", "pt", "rk", "sk", "sp", "ss", "ff", "ll",
-        "ck", "sh", "rt", "rd", "rm", "rn", "rp", "rs", "tch", "ts", "ds", "ks", "ps", "ls", "ms", "ns",
-    ];
-    for &s in &suffixes {
-        if lower.ends_with(s) {
-            return true;
-        }
-    }
-
-    // 4. Ä a Ã¢m tiáº¿t (nhiá» u cá»¥m nguyÃªn Ã¢m)
-    let mut vowel_groups = 0;
-    let mut in_vowel = false;
-    for &c in &chars {
-        if is_vietnamese_vowel_char(c) {
-            if !in_vowel {
-                vowel_groups += 1;
-                in_vowel = true;
-            }
-        } else {
-            in_vowel = false;
-        }
-    }
-
-    vowel_groups > 1
-}
-
 /// Kiểm tra xem từ có chứa nhiều hơn 1 cụm nguyên âm tách biệt hay không (đặc trưng từ tiếng Anh đa âm tiết: com-pu-ter, re-lease, sys-tem)
 pub fn has_multiple_vowel_clusters(word: &str) -> bool {
     let lower = word.to_lowercase();
@@ -314,10 +255,70 @@ pub fn has_multiple_vowel_clusters(word: &str) -> bool {
     vowel_groups > 1
 }
 
+/// Kiểm tra xem từ có chứa cụm phụ âm bất hợp lệ ở cuối hay không (Dynamic Coda Invariant)
+/// Trong tiếng Việt, âm cuối chỉ có thể là:
+/// - Không có phụ âm (vần mở: ba, mẹ, chỉ, ưu, đay)
+/// - Đúng 1 phụ âm đơn: c, m, n, p, t
+/// - Đúng 3 phụ âm kép: ng, nh, ch
+/// Bất kỳ từ nào có >= 2 phụ âm ở cuối mà không phải ng, nh, ch -> 100% là tiếng Anh (st, sk, sp, ft, ct, rt, rd...)
+pub fn has_invalid_coda_consonants(word: &str) -> bool {
+    let lower = word.to_lowercase();
+    let chars: Vec<char> = lower.chars().collect();
+    let mut coda_chars = Vec::new();
+
+    for &c in chars.iter().rev() {
+        if is_vietnamese_vowel_char(c) {
+            break;
+        }
+        if c.is_alphabetic() {
+            coda_chars.push(c);
+        }
+    }
+    coda_chars.reverse();
+
+    if coda_chars.len() >= 2 {
+        let s: String = coda_chars.into_iter().collect();
+        if s != "ng" && s != "nh" && s != "ch" {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Kiểm tra xem từ có phải là từ tiếng Anh / ngoại quốc hay không:
+/// Hoàn toàn DYNAMIC, KHÔNG DÙNG TỪ ĐIỂN:
+/// 1. Bắt đầu bằng phụ âm ngoại lai không có trong tiếng Việt (f, j, z, hoặc w + nguyên âm như win, wifi, web)
+/// 2. Chứa cụm phụ âm đuôi tiếng Anh (st, sk, sp, ft, ct...)
+/// 3. Chứa nhiều hơn 1 cụm nguyên âm cách nhau bởi phụ âm (re-lease, sys-tem, sta-tus, com-pu-ter...)
+pub fn is_english_foreign_word(word: &str) -> bool {
+    let lower = word.to_lowercase();
+    let chars: Vec<char> = lower.chars().collect();
+    if chars.is_empty() {
+        return false;
+    }
+
+    // 1. Ký tự đầu tiên ngoại lai
+    if matches!(chars[0], 'f' | 'j' | 'z') {
+        return true;
+    }
+    if chars[0] == 'w' && chars.len() > 1 && is_vietnamese_vowel_char(chars[1]) {
+        return true;
+    }
+
+    // 2. Cụm phụ âm đuôi tiếng Anh
+    if has_invalid_coda_consonants(&lower) {
+        return true;
+    }
+
+    // 3. Đa âm tiết (nhiều cụm nguyên âm)
+    has_multiple_vowel_clusters(&lower)
+}
+
 /// Kiểm tra tính hợp lệ của âm tiết tiếng Việt động (Dynamic Vietnamese Syllable Check).
-/// Không dùng từ điển! Kiểm tra luật ngữ âm:
-/// - Phụ âm đầu phải thuộc các phụ âm tiếng Việt.
-/// - Phụ âm cuối phải thuộc: c, ch, m, n, ng, nh, p, t (hoặc rỗng).
+/// Hoàn toàn động:
+/// - Không kiểm tra whitelist phụ âm đầu (mọi phụ âm đều được phép ghép vần tiếng Việt).
+/// - Phụ âm cuối không được là cụm phụ âm tiếng Anh.
 /// - Luật thanh điệu âm tắc: Nếu kết thúc bằng c, ch, p, t thì CHỈ được mang thanh Sắc hoặc Nặng.
 pub fn is_valid_vietnamese_phonotactics(word: &str) -> bool {
     let lower = word.to_lowercase();
@@ -326,35 +327,20 @@ pub fn is_valid_vietnamese_phonotactics(word: &str) -> bool {
         None => return false,
     };
 
-    // Nếu không có nguyên âm nào thì chưa phải âm tiết hoàn chỉnh
     if decomposed.vowels.is_empty() {
         return true;
     }
 
-    // Kiểm tra phụ âm đầu
-    if !decomposed.lead.is_empty() {
-        let valid_leads = [
-            "b", "c", "ch", "d", "\u{0111}", "g", "gh", "gi", "h", "k", "kh", "l", "m", "n", "ng", "ngh", "nh",
-            "p", "ph", "qu", "r", "s", "t", "th", "tr", "v", "x",
-        ];
-        if !valid_leads.contains(&decomposed.lead.as_str()) {
-            return false;
-        }
+    // Đuôi từ không được có cụm phụ âm tiếng Anh (st, sk, ct, ft...)
+    if has_invalid_coda_consonants(&lower) {
+        return false;
     }
 
-    // Kiểm tra phụ âm cuối
-    if !decomposed.trail.is_empty() {
-        let valid_trails = ["c", "ch", "m", "n", "ng", "nh", "p", "t"];
-        if !valid_trails.contains(&decomposed.trail.as_str()) {
+    // Luật thanh điệu âm tắc: c, ch, p, t chỉ đi với Sắc hoặc Nặng
+    if matches!(decomposed.trail.as_str(), "c" | "ch" | "p" | "t") {
+        let tone = decomposed.current_tone();
+        if matches!(tone, Tone::Grave | Tone::Hook | Tone::Tilde) {
             return false;
-        }
-
-        // Luật thanh điệu âm tắc: c, ch, p, t chỉ đi với Sắc hoặc Nặng
-        if matches!(decomposed.trail.as_str(), "c" | "ch" | "p" | "t") {
-            let tone = decomposed.current_tone();
-            if matches!(tone, Tone::Grave | Tone::Hook | Tone::Tilde) {
-                return false;
-            }
         }
     }
 

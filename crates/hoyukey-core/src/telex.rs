@@ -1,13 +1,15 @@
 // hoyukey-core: Dynamic Telex Transformation Engine
 // Thuật toán biến đổi phím Telex dựa trên hình vị học động (Zero-dependency, không dùng từ điển).
 
-use crate::phonotactics::{decompose_word, is_english_foreign_word};
+use crate::phonotactics::{decompose_word, is_english_foreign_word, VowelPart};
 use crate::vietnamese::{Tone, VowelMod};
 
 pub const CHAR_D_STROKE_LOWER: char = '\u{0111}'; // 'đ'
 pub const CHAR_D_STROKE_UPPER: char = '\u{0110}'; // 'Đ'
 pub const CHAR_U_HORN_LOWER: char = '\u{01B0}';   // 'ư'
 pub const CHAR_U_HORN_UPPER: char = '\u{01AF}';   // 'Ư'
+pub const CHAR_O_HORN_LOWER: char = '\u{01A1}';   // 'ơ'
+pub const CHAR_O_HORN_UPPER: char = '\u{01A0}';   // 'Ơ'
 
 pub fn transform_telex(
     word: &str,
@@ -26,6 +28,18 @@ pub fn transform_telex(
                 CHAR_U_HORN_LOWER.to_string()
             });
         }
+        if key == '[' {
+            return Some(CHAR_U_HORN_LOWER.to_string());
+        }
+        if key == '{' {
+            return Some(CHAR_U_HORN_UPPER.to_string());
+        }
+        if key == ']' {
+            return Some(CHAR_O_HORN_LOWER.to_string());
+        }
+        if key == '}' {
+            return Some(CHAR_O_HORN_UPPER.to_string());
+        }
         return None;
     }
 
@@ -37,28 +51,35 @@ pub fn transform_telex(
     let key_lower = key.to_ascii_lowercase();
     let is_key_upper = key.is_ascii_uppercase();
 
-    // 1. Phím 'd' / 'D' -> 'đ' / 'Đ'
+    // 1. Phím '[' và ']' / '{' và '}' tạo chữ 'ư', 'ơ', 'ươ' (chuẩn UniKey / EVKey)
+    if matches!(key, '[' | ']' | '{' | '}') {
+        if let Some(res) = handle_bracket_keys(word, key) {
+            return Some(res);
+        }
+    }
+
+    // 2. Phím 'd' / 'D' -> 'đ' / 'Đ'
     if key_lower == 'd' {
         if let Some(res) = handle_d_key(word, is_key_upper, free_marking) {
             return Some(res);
         }
     }
 
-    // 2. Phím mũ: 'a', 'e', 'o'
+    // 3. Phím mũ: 'a', 'e', 'o'
     if matches!(key_lower, 'a' | 'e' | 'o') {
         if let Some(res) = handle_hat_key(word, key_lower, is_key_upper, free_marking) {
             return Some(res);
         }
     }
 
-    // 3. Phím móc / trăng: 'w' / 'W'
+    // 4. Phím móc / trăng: 'w' / 'W'
     if key_lower == 'w' {
         if let Some(res) = handle_w_key(word, is_key_upper, free_marking, simple_telex) {
             return Some(res);
         }
     }
 
-    // 4. Phím dấu thanh: 's', 'f', 'r', 'x', 'j', 'z'
+    // 5. Phím dấu thanh: 's', 'f', 'r', 'x', 'j', 'z'
     if matches!(key_lower, 's' | 'f' | 'r' | 'x' | 'j' | 'z') {
         if let Some(res) = handle_tone_key(word, key_lower, modern_tone, free_marking) {
             return Some(res);
@@ -66,6 +87,89 @@ pub fn transform_telex(
     }
 
     None
+}
+
+/// Xử lý phím '[' và ']' / '{' và '}' (chuẩn UniKey: '[' -> 'ư', ']' -> 'ơ', 'u]' -> 'ươ')
+fn handle_bracket_keys(word: &str, key: char) -> Option<String> {
+    let is_upper = matches!(key, '{' | '}');
+    let is_open_bracket = matches!(key, '[' | '{');
+
+    // 1. Double tap: nếu ký tự cuối là 'ư'/'Ư' và gõ tiếp '['/'{' -> khôi phục '[' / '{'
+    if is_open_bracket {
+        if word.ends_with(CHAR_U_HORN_LOWER) || word.ends_with(CHAR_U_HORN_UPPER) {
+            let mut res = word.to_string();
+            res.pop();
+            res.push(if is_upper { '{' } else { '[' });
+            return Some(res);
+        }
+    } else {
+        // ']' hoặc '}'
+        if word.ends_with(CHAR_O_HORN_LOWER) || word.ends_with(CHAR_O_HORN_UPPER) {
+            let mut res = word.to_string();
+            res.pop();
+            res.push(if is_upper { '}' } else { ']' });
+            return Some(res);
+        }
+    }
+
+    let mut decomp = match decompose_word(word) {
+        Some(d) => d,
+        None => {
+            let ch = if is_open_bracket {
+                if is_upper { CHAR_U_HORN_UPPER } else { CHAR_U_HORN_LOWER }
+            } else {
+                if is_upper { CHAR_O_HORN_UPPER } else { CHAR_O_HORN_LOWER }
+            };
+            return Some(format!("{}{}", word, ch));
+        }
+    };
+
+    if is_open_bracket {
+        // '[' hoặc '{': biến 'u' thành 'ư', hoặc thêm 'ư'
+        if !decomp.vowels.is_empty() {
+            for v in decomp.vowels.iter_mut() {
+                if v.base == 'u' {
+                    v.vmod = VowelMod::Horn;
+                    return Some(decomp.recompose());
+                }
+            }
+        }
+        let ch = if is_upper { CHAR_U_HORN_UPPER } else { CHAR_U_HORN_LOWER };
+        Some(format!("{}{}", word, ch))
+    } else {
+        // ']' hoặc '}':
+        // uo -> ươ
+        if decomp.vowels.len() >= 2 {
+            for i in 0..(decomp.vowels.len() - 1) {
+                if decomp.vowels[i].base == 'u' && decomp.vowels[i + 1].base == 'o' {
+                    decomp.vowels[i].vmod = VowelMod::Horn;
+                    decomp.vowels[i + 1].vmod = VowelMod::Horn;
+                    return Some(decomp.recompose());
+                }
+            }
+        }
+        // u -> ươ (ví dụ: 'du' + ']' -> 'dươ')
+        if decomp.vowels.len() == 1 && decomp.vowels[0].base == 'u' {
+            decomp.vowels[0].vmod = VowelMod::Horn;
+            let o_horn = VowelPart {
+                base: 'o',
+                vmod: VowelMod::Horn,
+                tone: Tone::None,
+                is_upper: decomp.vowels[0].is_upper,
+            };
+            decomp.vowels.push(o_horn);
+            return Some(decomp.recompose());
+        }
+        // o -> ơ
+        for v in decomp.vowels.iter_mut() {
+            if v.base == 'o' {
+                v.vmod = VowelMod::Horn;
+                return Some(decomp.recompose());
+            }
+        }
+        let ch = if is_upper { CHAR_O_HORN_UPPER } else { CHAR_O_HORN_LOWER };
+        Some(format!("{}{}", word, ch))
+    }
 }
 
 /// Xử lý phím 'd' / 'D'
