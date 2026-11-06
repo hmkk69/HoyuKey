@@ -494,7 +494,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             };
 
             if auto_dot {
-                send_replace_batch(0, 0, ".");
+                send_replace_batch(0, 0, ".", None);
             }
 
             return CallNextHookEx(null_mut(), code, wparam, lparam);
@@ -639,7 +639,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
                                 crate::automation::clear_cached_caret_word();
                                 BLOCKED_VK[vk_idx].store(true, Ordering::SeqCst);
-                                send_replace_batch(deletes, backspaces, &new_word);
+                                send_replace_batch(deletes, backspaces, &new_word, None);
                                 return 1;
                             }
                         }
@@ -676,7 +676,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             }
             KeyAction::TransformCaret { deletes, backspaces, text } => {
                 BLOCKED_VK[vk_idx].store(true, Ordering::SeqCst);
-                send_replace_batch(deletes, backspaces, &text);
+                send_replace_batch(deletes, backspaces, &text, None);
                 return 1;
             }
             KeyAction::PassThrough | KeyAction::Reset | KeyAction::Backspace => {
@@ -775,12 +775,46 @@ fn vk_to_char(vk: u32, scan_code: u32) -> Option<char> {
 
 /// Gá»­i chuá»—i Delete, Backspace vÃ  Unicode Text nguyÃªn tá»­ (Atomic SendInput).
 /// Há»— trá»£ sá»­a dáº¥u táº¡i con trá» (xÃ³a Ä‘uÃ´i sau con trá» báº±ng Delete vÃ  xÃ³a Ä‘áº§u trÆ°á»›c con trá» báº±ng Backspace).
-unsafe fn send_replace_batch(deletes: usize, backspaces: usize, text: &str) {
-    if deletes == 0 && backspaces == 0 && text.is_empty() {
+unsafe fn send_replace_batch(
+    deletes: usize,
+    backspaces: usize,
+    text: &str,
+    prefix_char: Option<u16>,
+) {
+    if deletes == 0 && backspaces == 0 && text.is_empty() && prefix_char.is_none() {
         return;
     }
 
-    let mut inputs = Vec::with_capacity((deletes + backspaces) * 2 + text.encode_utf16().count() * 2);
+    let mut inputs = Vec::with_capacity(
+        (deletes + backspaces + if prefix_char.is_some() { 1 } else { 0 }) * 2
+            + text.encode_utf16().count() * 2,
+    );
+
+    // 0. Gửi ký tự rỗng (chuẩn OpenKey vFixRecommendBrowser 0x202F)
+    // Để ghi đè vùng chọn autocomplete trong Omnibox của trình duyệt
+    if let Some(ch) = prefix_char {
+        let mut down: INPUT = std::mem::zeroed();
+        down.r#type = INPUT_KEYBOARD;
+        down.Anonymous.ki = KEYBDINPUT {
+            wVk: 0,
+            wScan: ch,
+            dwFlags: KEYEVENTF_UNICODE,
+            time: 0,
+            dwExtraInfo: HOYU_MAGIC_EXTRA_INFO,
+        };
+        inputs.push(down);
+
+        let mut up: INPUT = std::mem::zeroed();
+        up.r#type = INPUT_KEYBOARD;
+        up.Anonymous.ki = KEYBDINPUT {
+            wVk: 0,
+            wScan: ch,
+            dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+            time: 0,
+            dwExtraInfo: HOYU_MAGIC_EXTRA_INFO,
+        };
+        inputs.push(up);
+    }
 
     // 1. Gá»­i phÃ­m Delete Ä‘á»ƒ xÃ³a pháº§n Ä‘uÃ´i phÃ­a sau con trá» (náº¿u con trá» Ä‘ang á»Ÿ giá»¯a tá»«)
     for _ in 0..deletes {
@@ -1032,17 +1066,26 @@ unsafe fn send_transform_batch(
     backspaces: usize,
     text: &str,
     _has_space_before: bool,
-    _browser_compatibility: bool,
-    _browser_apps: &str,
+    browser_compatibility: bool,
+    browser_apps: &str,
 ) {
     if backspaces == 0 && text.is_empty() {
         return;
     }
 
-    // Chuẩn UniKey / OpenKey: Tuyệt đối không tự sáng tạo thêm Backspace!
-    // Luôn gửi chính xác số lượng Backspace cần xóa bằng hiệu số ký tự delta.
-    let total_backspaces = backspaces;
-    send_replace_batch(0, total_backspaces, text);
+    // Chuẩn OpenKey vFixRecommendBrowser:
+    // Khi gõ trong trình duyệt (Chrome, Edge, Brave...) và có ít nhất 1 ký tự cần xóa (backspaces > 0):
+    // Gửi ký tự rỗng (0x202F) trước để ghi đè vùng chọn autocomplete trong Omnibox,
+    // đồng thời gửi thêm đúng 1 phím Backspace để xóa sạch ký tự rỗng này.
+    // Kết quả:
+    // - Trong Omnibox: xóa sạch gợi ý và chữ cũ, không bị 'aả'!
+    // - Trong web content / Facebook: xóa sạch ký tự rỗng và chữ cũ, không bao giờ ăn mất chữ đi trước!
+    let is_browser = browser_compatibility && is_foreground_browser_app(browser_apps);
+    if is_browser && backspaces > 0 {
+        send_replace_batch(0, backspaces + 1, text, Some(0x202F));
+    } else {
+        send_replace_batch(0, backspaces, text, None);
+    }
 }
 
 const CF_UNICODETEXT: u32 = 13;
